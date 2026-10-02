@@ -1,31 +1,23 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
-import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
+import '../view_models/exercise_statistics_view_model.dart';
 import 'widgets/strength_trend_chart.dart';
 
-enum StatsViewMode {
-  graph,
-  details,
-}
-
-class TimeFrameOption {
-  final String label;
-  final int days;
-
-  const TimeFrameOption({required this.label, required this.days});
-}
+// Re-export ViewModel enums and classes for callers
+export '../view_models/exercise_statistics_view_model.dart' show StatsViewMode, TimeFrameOption;
 
 class ExerciseStatisticsScreen extends StatefulWidget {
   final String? initialExerciseGuid;
+  final ExerciseStatisticsViewModel? viewModel;
 
   const ExerciseStatisticsScreen({
     this.initialExerciseGuid,
+    this.viewModel,
     super.key,
   });
 
@@ -34,193 +26,35 @@ class ExerciseStatisticsScreen extends StatefulWidget {
 }
 
 class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
-  final GoogleDriveService _driveService = GoogleDriveService();
-
-  static const List<TimeFrameOption> _timeFrames = [
-    TimeFrameOption(label: '1 Month', days: 30),
-    TimeFrameOption(label: '2 Months', days: 60),
-    TimeFrameOption(label: '3 Months', days: 90),
-    TimeFrameOption(label: '6 Months', days: 180),
-    TimeFrameOption(label: '1 Year', days: 365),
-  ];
-
-  StatsViewMode _currentViewMode = StatsViewMode.graph;
-  TimeFrameOption _selectedTimeFrame = _timeFrames.first;
-  ChartMetricType _selectedMetric = ChartMetricType.estimated1RM;
-  List<Exercise> _availableExercises = [];
-  Exercise? _selectedExercise;
-  List<StrengthChartPoint> _chartPoints = [];
-  List<DailyRecord> _rawHistoryRecords = [];
-  bool _isLoading = true;
-
-  double _peakScore = 0.0;
-  int _totalSetsInPeriod = 0;
-  int _totalSessionsInPeriod = 0;
-  double _trendPercentage = 0.0;
-
-  // In-memory cache for computed exercise statistics by exerciseGuid_days
-  final Map<String, _ExerciseStatsCacheEntry> _statsCache = {};
+  late final ExerciseStatisticsViewModel _viewModel;
+  bool _createdOwnViewModel = false;
 
   @override
   void initState() {
     super.initState();
+    if (widget.viewModel != null) {
+      _viewModel = widget.viewModel!;
+    } else {
+      _viewModel = ExerciseStatisticsViewModel();
+      _createdOwnViewModel = true;
+    }
+    _viewModel.addListener(_onViewModelChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadExercisesAndStatistics();
+      _viewModel.init(widget.initialExerciseGuid);
     });
   }
 
-  Future<void> _loadExercisesAndStatistics() async {
-    setState(() => _isLoading = true);
-    try {
-      final exercises = await _driveService.getExercises();
-
-      Exercise? initial;
-      if (widget.initialExerciseGuid != null) {
-        initial = exercises.cast<Exercise?>().firstWhere(
-              (e) => e?.guid == widget.initialExerciseGuid,
-              orElse: () => null,
-            );
-      }
-      initial ??= exercises.isNotEmpty ? exercises.first : null;
-
-      if (!mounted) return;
-      setState(() {
-        _availableExercises = exercises;
-        _selectedExercise = initial;
-      });
-
-      if (_selectedExercise != null) {
-        await _calculateStatisticsForSelectedExercise();
-      } else {
-        setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading statistics: $e')),
-      );
-    }
+  void _onViewModelChanged() {
+    if (mounted) setState(() {});
   }
 
-  Future<void> _calculateStatisticsForSelectedExercise() async {
-    if (_selectedExercise == null) {
-      setState(() {
-        _chartPoints = [];
-        _rawHistoryRecords = [];
-        _isLoading = false;
-      });
-      return;
+  @override
+  void dispose() {
+    _viewModel.removeListener(_onViewModelChanged);
+    if (_createdOwnViewModel) {
+      _viewModel.dispose();
     }
-
-    final cacheKey = '${_selectedExercise!.guid}_${_selectedTimeFrame.days}';
-    final cached = _statsCache[cacheKey];
-    if (cached != null) {
-      setState(() {
-        _rawHistoryRecords = cached.rawHistoryRecords;
-        _chartPoints = cached.chartPoints;
-        _peakScore = cached.peakScore;
-        _totalSetsInPeriod = cached.totalSetsInPeriod;
-        _totalSessionsInPeriod = cached.totalSessionsInPeriod;
-        _trendPercentage = cached.trendPercentage;
-        _isLoading = false;
-      });
-      return;
-    }
-
-    final history = await _driveService.queryExerciseHistory(
-      _selectedExercise!.guid,
-      daysLimit: _selectedTimeFrame.days,
-    );
-
-    // Group records by calendar date (year, month, day) without creating DateFormat objects in loop
-    final Map<String, List<DailyRecord>> groupedByDate = {};
-    for (final r in history) {
-      final key = '${r.date.year}-${r.date.month.toString().padLeft(2, '0')}-${r.date.day.toString().padLeft(2, '0')}';
-      groupedByDate.putIfAbsent(key, () => []).add(r);
-    }
-
-    final List<StrengthChartPoint> points = [];
-    int totalSets = 0;
-    double maxScore = 0.0;
-
-    for (final entry in groupedByDate.entries) {
-      final dateRecords = entry.value;
-      final sessionDate = dateRecords.first.date;
-      final sessionSets = dateRecords.length;
-      final sessionReps = dateRecords.fold<int>(0, (sum, r) => sum + r.reps);
-
-      double sessionMaxScore = 0.0;
-      double sessionMaxWeight = 0.0;
-      double sessionTotalVolume = 0.0;
-      int sessionMaxReps = 0;
-
-      for (final r in dateRecords) {
-        final rirBonus = max(0.0, 10.0 - r.rir) * 0.5;
-        final setScore = r.weight > 0
-            ? r.weight * (1.0 + (r.reps + rirBonus) / 30.0)
-            : r.reps + rirBonus;
-        if (setScore > sessionMaxScore) {
-          sessionMaxScore = setScore;
-        }
-        if (r.weight > sessionMaxWeight) {
-          sessionMaxWeight = r.weight;
-        }
-        sessionTotalVolume += (r.weight * r.reps);
-        if (r.reps > sessionMaxReps) {
-          sessionMaxReps = r.reps;
-        }
-      }
-
-      if (sessionMaxScore > maxScore) {
-        maxScore = sessionMaxScore;
-      }
-      totalSets += sessionSets;
-
-      points.add(StrengthChartPoint(
-        date: sessionDate,
-        score: sessionMaxScore,
-        totalSets: sessionSets,
-        totalReps: sessionReps,
-        maxWeight: sessionMaxWeight,
-        totalVolume: sessionTotalVolume,
-        maxReps: sessionMaxReps,
-      ));
-    }
-
-    // Sort points chronologically
-    points.sort((a, b) => a.date.compareTo(b.date));
-
-    // Compute trend percentage change
-    double trend = 0.0;
-    if (points.length >= 2) {
-      final first = points.first.score;
-      final last = points.last.score;
-      if (first > 0) {
-        trend = ((last - first) / first) * 100.0;
-      }
-    }
-
-    final cacheEntry = _ExerciseStatsCacheEntry(
-      rawHistoryRecords: history,
-      chartPoints: points,
-      peakScore: maxScore,
-      totalSetsInPeriod: totalSets,
-      totalSessionsInPeriod: points.length,
-      trendPercentage: trend,
-    );
-    _statsCache[cacheKey] = cacheEntry;
-
-    if (!mounted) return;
-    setState(() {
-      _rawHistoryRecords = history;
-      _chartPoints = points;
-      _peakScore = maxScore;
-      _totalSetsInPeriod = totalSets;
-      _totalSessionsInPeriod = points.length;
-      _trendPercentage = trend;
-      _isLoading = false;
-    });
+    super.dispose();
   }
 
   @override
@@ -231,11 +65,11 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
       appBar: AppBar(
         title: const Text('Exercise Statistics', style: TextStyle(fontWeight: FontWeight.bold)),
       ),
-      body: _isLoading
+      body: _viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _availableExercises.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(16.0),
+          : _viewModel.availableExercises.isEmpty
+              ? const Padding(
+                  padding: EdgeInsets.all(16.0),
                   child: EmptyStateWidget(
                     icon: Icons.fitness_center_rounded,
                     title: 'No Exercises Found',
@@ -261,12 +95,12 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<Exercise>(
-                              value: _selectedExercise,
+                              value: _viewModel.selectedExercise,
                               isExpanded: true,
                               dropdownColor: Theme.of(context).cardColor,
                               icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
                               hint: const Text('Select Exercise from Exercise_DB'),
-                              items: _availableExercises.map((e) {
+                              items: _viewModel.availableExercises.map((e) {
                                 return DropdownMenuItem<Exercise>(
                                   value: e,
                                   child: Row(
@@ -287,11 +121,8 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                                 );
                               }).toList(),
                               onChanged: (Exercise? selected) {
-                                if (selected != null && selected != _selectedExercise) {
-                                  setState(() {
-                                    _selectedExercise = selected;
-                                  });
-                                  _calculateStatisticsForSelectedExercise();
+                                if (selected != null) {
+                                  _viewModel.selectExercise(selected);
                                 }
                               },
                             ),
@@ -304,8 +135,8 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
-                          children: _timeFrames.map((tf) {
-                            final isSelected = _selectedTimeFrame.label == tf.label;
+                          children: ExerciseStatisticsViewModel.timeFrames.map((tf) {
+                            final isSelected = _viewModel.selectedTimeFrame.label == tf.label;
                             return Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: ChoiceChip(
@@ -318,10 +149,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                                 ),
                                 onSelected: (selected) {
                                   if (selected) {
-                                    setState(() {
-                                      _selectedTimeFrame = tf;
-                                    });
-                                    _calculateStatisticsForSelectedExercise();
+                                    _viewModel.selectTimeFrame(tf);
                                   }
                                 },
                               ),
@@ -337,7 +165,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                           Expanded(
                             child: _buildSummaryCard(
                               title: 'Peak Performance',
-                              value: '${_peakScore.toStringAsFixed(1)} pts',
+                              value: '${_viewModel.peakScore.toStringAsFixed(1)} pts',
                               icon: Icons.emoji_events_rounded,
                               iconColor: Colors.amber.shade700,
                               isDark: isDark,
@@ -347,11 +175,11 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                           Expanded(
                             child: _buildSummaryCard(
                               title: 'Strength Trend',
-                              value: '${_trendPercentage >= 0 ? '+' : ''}${_trendPercentage.toStringAsFixed(1)}%',
-                              icon: _trendPercentage >= 0
+                              value: '${_viewModel.trendPercentage >= 0 ? '+' : ''}${_viewModel.trendPercentage.toStringAsFixed(1)}%',
+                              icon: _viewModel.trendPercentage >= 0
                                   ? Icons.trending_up_rounded
                                   : Icons.trending_down_rounded,
-                              iconColor: _trendPercentage >= 0 ? Colors.green : AppColors.error,
+                              iconColor: _viewModel.trendPercentage >= 0 ? Colors.green : AppColors.error,
                               isDark: isDark,
                             ),
                           ),
@@ -363,7 +191,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                           Expanded(
                             child: _buildSummaryCard(
                               title: 'Total Sessions',
-                              value: '$_totalSessionsInPeriod',
+                              value: '${_viewModel.totalSessionsInPeriod}',
                               icon: Icons.calendar_month_rounded,
                               iconColor: AppColors.primary,
                               isDark: isDark,
@@ -373,7 +201,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                           Expanded(
                             child: _buildSummaryCard(
                               title: 'Total Sets',
-                              value: '$_totalSetsInPeriod',
+                              value: '${_viewModel.totalSetsInPeriod}',
                               icon: Icons.fitness_center_rounded,
                               iconColor: AppColors.accent,
                               isDark: isDark,
@@ -397,17 +225,15 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                             icon: Icon(Icons.table_rows_rounded),
                           ),
                         ],
-                        selected: {_currentViewMode},
+                        selected: {_viewModel.currentViewMode},
                         onSelectionChanged: (newSelection) {
-                          setState(() {
-                            _currentViewMode = newSelection.first;
-                          });
+                          _viewModel.setViewMode(newSelection.first);
                         },
                       ),
                       const SizedBox(height: 16),
 
                       // Content Switcher: Graph View vs Raw Details View
-                      if (_currentViewMode == StatsViewMode.graph)
+                      if (_viewModel.currentViewMode == StatsViewMode.graph)
                         _buildGraphView(isDark)
                       else
                         _buildDetailsView(isDark),
@@ -418,7 +244,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
   }
 
   Widget _buildGraphView(bool isDark) {
-    if (_chartPoints.isEmpty) {
+    if (_viewModel.chartPoints.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
@@ -432,7 +258,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
           icon: Icons.show_chart_rounded,
           title: 'No Workout History Found',
           description:
-              'No logged sets found for "${_selectedExercise?.name ?? 'Selected Exercise'}" in the last ${_selectedTimeFrame.label}.',
+              'No logged sets found for "${_viewModel.selectedExercise?.name ?? 'Selected Exercise'}" in the last ${_viewModel.selectedTimeFrame.label}.',
         ),
       );
     }
@@ -445,7 +271,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: ChartMetricType.values.map((metric) {
-              final isSelected = _selectedMetric == metric;
+              final isSelected = _viewModel.selectedMetric == metric;
               return Padding(
                 padding: const EdgeInsets.only(right: 8, bottom: 12),
                 child: FilterChip(
@@ -460,9 +286,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                   ),
                   onSelected: (selected) {
                     if (selected) {
-                      setState(() {
-                        _selectedMetric = metric;
-                      });
+                      _viewModel.setSelectedMetric(metric);
                     }
                   },
                 ),
@@ -471,15 +295,15 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
           ),
         ),
         StrengthTrendChart(
-          points: _chartPoints,
-          metricType: _selectedMetric,
+          points: _viewModel.chartPoints,
+          metricType: _viewModel.selectedMetric,
         ),
       ],
     );
   }
 
   Widget _buildDetailsView(bool isDark) {
-    if (_rawHistoryRecords.isEmpty) {
+    if (_viewModel.rawHistoryRecords.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
@@ -493,14 +317,14 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
           icon: Icons.table_rows_rounded,
           title: 'No Workout History Found',
           description:
-              'No logged sets found for "${_selectedExercise?.name ?? 'Selected Exercise'}" in the last ${_selectedTimeFrame.label}.',
+              'No logged sets found for "${_viewModel.selectedExercise?.name ?? 'Selected Exercise'}" in the last ${_viewModel.selectedTimeFrame.label}.',
         ),
       );
     }
 
     // Group raw records by date (newest first)
     final Map<String, List<DailyRecord>> grouped = {};
-    for (final r in _rawHistoryRecords.reversed) {
+    for (final r in _viewModel.rawHistoryRecords.reversed) {
       final dateKey = DateFormat('yyyy-MM-dd').format(r.date);
       grouped.putIfAbsent(dateKey, () => []).add(r);
     }
@@ -711,22 +535,4 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
       ),
     );
   }
-}
-
-class _ExerciseStatsCacheEntry {
-  final List<DailyRecord> rawHistoryRecords;
-  final List<StrengthChartPoint> chartPoints;
-  final double peakScore;
-  final int totalSetsInPeriod;
-  final int totalSessionsInPeriod;
-  final double trendPercentage;
-
-  _ExerciseStatsCacheEntry({
-    required this.rawHistoryRecords,
-    required this.chartPoints,
-    required this.peakScore,
-    required this.totalSetsInPeriod,
-    required this.totalSessionsInPeriod,
-    required this.trendPercentage,
-  });
 }

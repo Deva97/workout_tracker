@@ -11,6 +11,8 @@ class AddWorkoutSetModal extends StatefulWidget {
   final int initialSetNumber;
   final Function(DailyRecord record, bool keepOpen) onSaveSet;
   final DailyRecord? editRecord;
+  final DailyRecord? previousRecord;
+  final DailyRecord? Function(String exerciseGuid)? getPreviousRecord;
 
   const AddWorkoutSetModal({
     required this.availableExercises,
@@ -18,6 +20,8 @@ class AddWorkoutSetModal extends StatefulWidget {
     this.initialExercise,
     this.initialSetNumber = 1,
     this.editRecord,
+    this.previousRecord,
+    this.getPreviousRecord,
     super.key,
   });
 
@@ -29,6 +33,7 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
   final _formKey = GlobalKey<FormState>();
 
   Exercise? _selectedExercise;
+  DailyRecord? _activePreviousRecord;
   late TextEditingController _setController;
   late TextEditingController _repsController;
   late TextEditingController _weightController;
@@ -51,9 +56,17 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
       _selectedExercise = widget.initialExercise ??
           (widget.availableExercises.isNotEmpty ? widget.availableExercises.first : null);
       _setController = TextEditingController(text: widget.initialSetNumber.toString());
-      _repsController = TextEditingController(text: '10');
-      _weightController = TextEditingController(text: '60.0');
-      _rirValue = 2.0;
+      _activePreviousRecord = widget.previousRecord ??
+          (_selectedExercise != null ? widget.getPreviousRecord?.call(_selectedExercise!.guid) : null);
+      if (_activePreviousRecord != null) {
+        _repsController = TextEditingController(text: _activePreviousRecord!.reps.toString());
+        _weightController = TextEditingController(text: _activePreviousRecord!.weight.toString());
+        _rirValue = _activePreviousRecord!.rir;
+      } else {
+        _repsController = TextEditingController(text: '10');
+        _weightController = TextEditingController(text: '60.0');
+        _rirValue = 2.0;
+      }
     }
   }
 
@@ -95,6 +108,7 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
     if (keepOpen) {
       setState(() {
         _setController.text = (setNumber + 1).toString();
+        _activePreviousRecord = record;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -216,9 +230,45 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
                 onChanged: (val) {
                   setState(() {
                     _selectedExercise = val;
+                    if (val != null) {
+                      final prev = widget.getPreviousRecord?.call(val.guid);
+                      if (prev != null) {
+                        _activePreviousRecord = prev;
+                        _weightController.text = prev.weight.toString();
+                        _repsController.text = prev.reps.toString();
+                        _rirValue = prev.rir;
+                      }
+                    }
                   });
                 },
               ),
+            if (_activePreviousRecord != null && widget.editRecord == null) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.history_rounded, size: 16, color: AppColors.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Last logged: Set ${_activePreviousRecord!.set} • ${_activePreviousRecord!.weight} kg × ${_activePreviousRecord!.reps} reps (RIR ${_activePreviousRecord!.rir.toStringAsFixed(1)})',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
 
             // Set Number & Reps Inputs Row

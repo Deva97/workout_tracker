@@ -3,107 +3,65 @@ import 'package:intl/intl.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/daily_workout_entry.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
-import 'package:workout_tracker/data/services/google_drive_service.dart';
+import 'package:workout_tracker/domain/repositories/auth_repository.dart' show SyncState;
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
 import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
+import '../view_models/todays_workout_log_view_model.dart';
 import 'widgets/add_workout_set_modal.dart';
 import 'widgets/rest_timer_widget.dart';
 
 class TodaysWorkoutLogScreen extends StatefulWidget {
-  const TodaysWorkoutLogScreen({super.key});
+  final TodaysWorkoutLogViewModel? viewModel;
+
+  const TodaysWorkoutLogScreen({
+    this.viewModel,
+    super.key,
+  });
 
   @override
   State<TodaysWorkoutLogScreen> createState() => _TodaysWorkoutLogScreenState();
 }
 
 class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
-  final GoogleDriveService _driveService = GoogleDriveService();
-
-  List<DailyWorkoutEntry> _todaysEntries = [];
-  List<Exercise> _availableExercises = [];
-  bool _isLoading = true;
-  bool _showRestTimer = false;
+  late final TodaysWorkoutLogViewModel _viewModel;
+  bool _createdOwnViewModel = false;
 
   @override
   void initState() {
     super.initState();
+    if (widget.viewModel != null) {
+      _viewModel = widget.viewModel!;
+    } else {
+      _viewModel = TodaysWorkoutLogViewModel();
+      _createdOwnViewModel = true;
+    }
+    _viewModel.addListener(_onViewModelChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadTodaysWorkoutLog();
+      _viewModel.loadTodaysWorkoutLog();
     });
   }
 
-  Future<void> _loadTodaysWorkoutLog() async {
-    // 1. Immediately render cached data if present so opening the screen is instant
-    final cachedExercises = _driveService.dbContext.readExercises();
-    final cachedEntries = _driveService.dbContext.getTodaysWorkoutEntries();
-    if (cachedExercises.isNotEmpty || cachedEntries.isNotEmpty) {
-      if (mounted) {
-        setState(() {
-          _availableExercises = cachedExercises;
-          _todaysEntries = cachedEntries;
-          _isLoading = false;
-        });
-      }
-    }
-
-    // 2. Refresh from Drive in background (getTodaysWorkoutEntries automatically loads exercises)
-    try {
-      final entries = await _driveService.getTodaysWorkoutEntries();
-      final exercises = _driveService.dbContext.readExercises();
-
-      if (!mounted) return;
-      setState(() {
-        _availableExercises = exercises;
-        _todaysEntries = entries;
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      if (_availableExercises.isEmpty && _todaysEntries.isEmpty) {
-        setState(() => _isLoading = false);
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading today\'s workout: $e')),
-      );
-    }
+  void _onViewModelChanged() {
+    if (mounted) setState(() {});
   }
 
-  /// Optimistically save set: update local cache & UI immediately,
-  /// background Excel upload is triggered non-blockingly.
-  Future<void> _handleSaveSet(DailyRecord record, bool keepOpen) async {
-    try {
-      await _driveService.addDailyRecordOptimistic(record);
-
-      // Instantly update UI from local memory and start rest timer
-      final updatedEntries = _driveService.dbContext.getTodaysWorkoutEntries();
-      if (!mounted) return;
-      setState(() {
-        _todaysEntries = updatedEntries;
-        _showRestTimer = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to save set: $e')),
-      );
+  @override
+  void dispose() {
+    _viewModel.removeListener(_onViewModelChanged);
+    if (_createdOwnViewModel) {
+      _viewModel.dispose();
     }
+    super.dispose();
   }
 
-  /// Optimistically delete set: update local cache & UI immediately,
-  /// background Excel upload is triggered non-blockingly.
   Future<void> _deleteRecord(DailyWorkoutEntry entry) async {
     final deletedRecord = entry.record;
     try {
-      await _driveService.deleteDailyRecordOptimistic(entry.record.id);
+      await _viewModel.deleteSet(entry);
 
-      final updatedEntries = _driveService.dbContext.getTodaysWorkoutEntries();
       if (!mounted) return;
-      setState(() {
-        _todaysEntries = updatedEntries;
-      });
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Set ${deletedRecord.set} for "${entry.exercise.name}" deleted'),
@@ -111,11 +69,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
             label: 'Undo',
             textColor: AppColors.primaryLight,
             onPressed: () async {
-              await _driveService.addDailyRecordOptimistic(deletedRecord);
-              final restored = _driveService.dbContext.getTodaysWorkoutEntries();
-              if (mounted) {
-                setState(() => _todaysEntries = restored);
-              }
+              await _viewModel.restoreSet(deletedRecord);
             },
           ),
           duration: const Duration(seconds: 4),
@@ -129,32 +83,8 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     }
   }
 
-  /// Optimistically edit set: update local cache & UI immediately,
-  /// background Excel upload is triggered non-blockingly.
-  Future<void> _editRecord(DailyRecord original, DailyRecord updated) async {
-    try {
-      await _driveService.editDailyRecordOptimistic(updated);
-
-      final updatedEntries = _driveService.dbContext.getTodaysWorkoutEntries();
-      if (!mounted) return;
-      setState(() {
-        _todaysEntries = updatedEntries;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Set updated successfully')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update set: $e')),
-      );
-    }
-  }
-
-  /// Trigger manual sync to Excel
   Future<void> _triggerManualSync() async {
-    final result = await _driveService.manualSyncToExcel();
+    final result = await _viewModel.manualSync();
     if (!mounted) return;
 
     if (result == SyncState.synced) {
@@ -176,13 +106,19 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
   void _openAddSetModal([Exercise? targetExercise, DailyRecord? editRecord]) {
     int nextSetNumber = 1;
-    if (targetExercise != null && editRecord == null) {
-      final existingSets = _todaysEntries
-          .where((entry) => entry.exercise.guid == targetExercise.guid)
+    DailyRecord? previousRecord;
+
+    final effectiveExercise = targetExercise ??
+        (_viewModel.availableExercises.isNotEmpty ? _viewModel.availableExercises.first : null);
+
+    if (effectiveExercise != null && editRecord == null) {
+      final existingSets = _viewModel.todaysEntries
+          .where((entry) => entry.exercise.guid == effectiveExercise.guid)
           .map((entry) => entry.record.set);
       if (existingSets.isNotEmpty) {
         nextSetNumber = existingSets.reduce((a, b) => a > b ? a : b) + 1;
       }
+      previousRecord = _viewModel.getLastRecordedSet(effectiveExercise.guid);
     }
 
     showModalBottomSheet(
@@ -195,15 +131,30 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: AddWorkoutSetModal(
-          availableExercises: _availableExercises,
+          availableExercises: _viewModel.availableExercises,
           initialExercise: targetExercise,
           initialSetNumber: editRecord?.set ?? nextSetNumber,
           editRecord: editRecord,
-          onSaveSet: (record, keepOpen) {
-            if (editRecord != null) {
-              _editRecord(editRecord, record);
-            } else {
-              _handleSaveSet(record, keepOpen);
+          previousRecord: previousRecord,
+          getPreviousRecord: (guid) => _viewModel.getLastRecordedSet(guid),
+          onSaveSet: (record, keepOpen) async {
+            try {
+              if (editRecord != null) {
+                await _viewModel.editSet(record);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Set updated successfully')),
+                  );
+                }
+              } else {
+                await _viewModel.saveSet(record);
+              }
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to save set: $e')),
+                );
+              }
             }
           },
         ),
@@ -213,7 +164,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
   Map<String, List<DailyWorkoutEntry>> _groupEntriesByExercise() {
     final Map<String, List<DailyWorkoutEntry>> grouped = {};
-    for (final entry in _todaysEntries) {
+    for (final entry in _viewModel.todaysEntries) {
       final key = entry.exercise.guid;
       grouped.putIfAbsent(key, () => []).add(entry);
     }
@@ -246,21 +197,19 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
         actions: [
           IconButton(
             icon: Icon(
-              _showRestTimer ? Icons.timer_rounded : Icons.timer_outlined,
-              color: _showRestTimer ? AppColors.primary : (isDark ? Colors.white70 : AppColors.textSecondary),
+              _viewModel.showRestTimer ? Icons.timer_rounded : Icons.timer_outlined,
+              color: _viewModel.showRestTimer ? AppColors.primary : (isDark ? Colors.white70 : AppColors.textSecondary),
             ),
             tooltip: 'Toggle Rest Timer',
             onPressed: () {
-              setState(() {
-                _showRestTimer = !_showRestTimer;
-              });
+              _viewModel.setShowRestTimer(!_viewModel.showRestTimer);
             },
           ),
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: Center(
               child: ValueListenableBuilder<SyncState>(
-                valueListenable: _driveService.syncStateNotifier,
+                valueListenable: _viewModel.syncStateListenable,
                 builder: (context, syncState, child) {
                   return CompactSyncButton(
                     syncState: syncState,
@@ -281,19 +230,19 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
         label: const Text('Add Set', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
       ),
       body: RefreshIndicator(
-        onRefresh: _loadTodaysWorkoutLog,
-        child: _isLoading
+        onRefresh: _viewModel.loadTodaysWorkoutLog,
+        child: _viewModel.isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
-                  if (_showRestTimer)
+                  if (_viewModel.showRestTimer)
                     RestTimerWidget(
                       onClose: () {
-                        setState(() => _showRestTimer = false);
+                        _viewModel.setShowRestTimer(false);
                       },
                     ),
                   Expanded(
-                    child: _todaysEntries.isEmpty
+                    child: _viewModel.todaysEntries.isEmpty
                         ? SingleChildScrollView(
                             physics: const AlwaysScrollableScrollPhysics(),
                             child: Container(
@@ -364,6 +313,8 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                           const SizedBox(height: 4),
 
                                           ...entries.map((entry) {
+                                            final isPr = _viewModel.isPersonalRecord(entry);
+
                                             return Dismissible(
                                               key: ValueKey(entry.record.id),
                                               direction: DismissDirection.endToStart,
@@ -411,6 +362,28 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                                         ),
                                                       ),
                                                     ),
+                                                    if (isPr) ...[
+                                                      const SizedBox(width: 6),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                                        decoration: BoxDecoration(
+                                                          color: const Color(0xFFF59E0B).withValues(alpha: isDark ? 0.2 : 0.12),
+                                                          borderRadius: BorderRadius.circular(6),
+                                                          border: Border.all(
+                                                            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                                                          ),
+                                                        ),
+                                                        child: const Text(
+                                                          'PR 🏆',
+                                                          style: TextStyle(
+                                                            fontWeight: FontWeight.w800,
+                                                            fontSize: 10,
+                                                            color: Color(0xFFF59E0B),
+                                                            letterSpacing: 0.2,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
                                                     const SizedBox(width: 12),
 
                                                     // Metrics: Weight & Reps & RIR

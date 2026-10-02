@@ -6,8 +6,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_tracker/data/context/workout_db_context.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
+import 'package:workout_tracker/domain/models/daily_workout_entry.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/add_workout_set_modal.dart';
+import 'package:workout_tracker/ui/features/workout_log/view_models/todays_workout_log_view_model.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 
 void main() {
@@ -263,6 +265,237 @@ void main() {
 
       expect(find.text('Sync'), findsOneWidget);
       expect(find.byType(CompactSyncButton), findsOneWidget);
+    });
+
+    testWidgets('renders PR 🏆 badge for the set with highest estimated 1RM', (tester) async {
+      final exercise = Exercise(guid: 'ex-press', name: 'Overhead Press', bodyPart: 'Shoulders');
+      final rec1 = DailyRecord(
+        id: 'r-1',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 40.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'r-2',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 2,
+        reps: 8,
+        rir: 1.0,
+        weight: 50.0,
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([rec1.toMap(), rec2.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec1, rec2]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('PR 🏆'), findsOneWidget);
+    });
+  });
+
+  group('TodaysWorkoutLogViewModel - Unit Tests', () {
+    test('identifies personal record set based on peak estimated 1RM', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final rec1 = DailyRecord(
+        id: 'rec-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'rec-2',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 2,
+        reps: 8,
+        rir: 1.0,
+        weight: 70.0,
+      );
+
+      final entry1 = DailyWorkoutEntry(record: rec1, exercise: benchPress);
+      final entry2 = DailyWorkoutEntry(record: rec2, exercise: benchPress);
+
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec1, rec2]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+
+      expect(viewModel.isPersonalRecord(entry1), isFalse);
+      expect(viewModel.isPersonalRecord(entry2), isTrue);
+    });
+
+    test('maintains last recorded set cache and retrieves it accurately', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final rec1 = DailyRecord(
+        id: 'rec-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'rec-2',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 2,
+        reps: 8,
+        rir: 1.0,
+        weight: 65.0,
+      );
+
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec1, rec2]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+
+      final last = viewModel.getLastRecordedSet(benchPress.guid);
+      expect(last, isNotNull);
+      expect(last!.set, equals(2));
+      expect(last.weight, equals(65.0));
+      expect(last.reps, equals(8));
+    });
+
+    test('saveSet, editSet, deleteSet, restoreSet mutate state and notify listeners', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+      expect(viewModel.todaysEntries, isEmpty);
+
+      final rec1 = DailyRecord(
+        id: 'rec-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+
+      // Save Set
+      await viewModel.saveSet(rec1);
+      expect(viewModel.todaysEntries.length, equals(1));
+      expect(viewModel.showRestTimer, isTrue);
+
+      // Edit Set
+      final updatedRec1 = rec1.copyWith(weight: 65.0);
+      await viewModel.editSet(updatedRec1);
+      expect(viewModel.todaysEntries.first.record.weight, equals(65.0));
+
+      // Delete Set
+      await viewModel.deleteSet(viewModel.todaysEntries.first);
+      expect(viewModel.todaysEntries, isEmpty);
+
+      // Restore Set
+      await viewModel.restoreSet(rec1);
+      expect(viewModel.todaysEntries.length, equals(1));
+    });
+  });
+
+  group('AddWorkoutSetModal - Memory & Dropdown Tests', () {
+    testWidgets('pre-fills weight and reps from previousRecord and shows banner', (tester) async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final prevRecord = DailyRecord(
+        id: 'prev-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now().subtract(const Duration(days: 2)),
+        set: 3,
+        reps: 12,
+        rir: 1.5,
+        weight: 85.0,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AddWorkoutSetModal(
+              availableExercises: [benchPress],
+              initialExercise: benchPress,
+              initialSetNumber: 4,
+              previousRecord: prevRecord,
+              onSaveSet: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Last logged: Set 3 • 85.0 kg × 12 reps'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '85.0'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '12'), findsOneWidget);
+    });
+
+    testWidgets('dynamically updates previous record metrics when exercise changes in dropdown', (tester) async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final squat = Exercise(guid: 'ex-squat', name: 'Barbell Squat', bodyPart: 'Legs');
+
+      final squatPrev = DailyRecord(
+        id: 'prev-squat',
+        workoutId: squat.guid,
+        workoutName: squat.name,
+        date: DateTime.now(),
+        set: 2,
+        reps: 6,
+        rir: 2.0,
+        weight: 120.0,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AddWorkoutSetModal(
+              availableExercises: [benchPress, squat],
+              initialExercise: benchPress,
+              getPreviousRecord: (guid) => guid == squat.guid ? squatPrev : null,
+              onSaveSet: (_, _) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Initially on Bench Press, no previous record
+      expect(find.textContaining('Last logged:'), findsNothing);
+
+      // Select Squat from dropdown
+      await tester.tap(find.text('Bench Press').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Barbell Squat').last);
+      await tester.pumpAndSettle();
+
+      // Squat previous record should now be displayed and pre-filled!
+      expect(find.textContaining('Last logged: Set 2 • 120.0 kg × 6 reps'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '120.0'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, '6'), findsOneWidget);
     });
   });
 }

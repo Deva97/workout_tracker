@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import '../models/daily_record.dart';
 import '../models/daily_workout_entry.dart';
+import 'auth_repository.dart' show SyncState;
 
 abstract class WorkoutRepository {
   Future<List<DailyWorkoutEntry>> getTodaysWorkoutEntries([DateTime? date]);
@@ -12,4 +14,6 @@ abstract class WorkoutRepository {
   Future<void> syncDailyRecordsFromDrive();
   Future<void> syncDailyRecordsToDrive(List<DailyRecord> todayRecords);
   List<DailyWorkoutEntry> getCachedTodaysWorkoutEntries([DateTime? date]);
+  Future<SyncState> manualSyncToExcel();
+  ValueListenable<SyncState> get syncStateListenable;
 }

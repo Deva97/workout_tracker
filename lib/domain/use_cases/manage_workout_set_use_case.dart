@@ -19,4 +19,8 @@ class ManageWorkoutSetUseCase {
   Future<void> deleteSet(String id) {
     return _workoutRepository.deleteDailyRecord(id);
   }
+
+  Future<List<DailyRecord>> getRecentSets(String workoutId, {int daysLimit = 30}) {
+    return _workoutRepository.queryExerciseHistory(workoutId, daysLimit: daysLimit);
+  }
 }

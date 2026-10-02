@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../../domain/models/daily_record.dart';
 import '../../domain/models/daily_workout_entry.dart';
 import '../../domain/repositories/workout_repository.dart';
@@ -58,4 +59,12 @@ class WorkoutRepositoryImpl implements WorkoutRepository {
   List<DailyWorkoutEntry> getCachedTodaysWorkoutEntries([DateTime? date]) {
     return _driveService.dbContext.getTodaysWorkoutEntries(date);
   }
+
+  @override
+  Future<SyncState> manualSyncToExcel() {
+    return _driveService.manualSyncToExcel();
+  }
+
+  @override
+  ValueListenable<SyncState> get syncStateListenable => _driveService.syncStateNotifier;
 }

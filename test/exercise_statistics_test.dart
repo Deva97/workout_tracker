@@ -6,6 +6,7 @@ import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/ui/features/home/views/home_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistics_screen.dart';
+import 'package:workout_tracker/ui/features/workout_log/view_models/exercise_statistics_view_model.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/strength_trend_chart.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 
@@ -205,6 +206,107 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Exercise Statistics'), findsOneWidget);
+    });
+  });
+
+  group('ExerciseStatisticsViewModel - Unit Tests', () {
+    test('initializes with selected exercise and computes summary statistics and chart points', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final now = DateTime.now();
+      final rec1 = DailyRecord(
+        id: 'r-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now.subtract(const Duration(days: 10)),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 80.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'r-2',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now.subtract(const Duration(days: 2)),
+        set: 1,
+        reps: 8,
+        rir: 1.0,
+        weight: 90.0,
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([benchPress.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec1, rec2]);
+
+      final viewModel = ExerciseStatisticsViewModel();
+      await viewModel.init(benchPress.guid);
+
+      expect(viewModel.availableExercises.length, equals(1));
+      expect(viewModel.selectedExercise?.guid, equals(benchPress.guid));
+      expect(viewModel.chartPoints.length, equals(2));
+      expect(viewModel.totalSetsInPeriod, equals(2));
+      expect(viewModel.totalSessionsInPeriod, equals(2));
+      expect(viewModel.peakScore, greaterThan(0.0));
+      expect(viewModel.trendPercentage, greaterThan(0.0));
+    });
+
+    test('switching timeframe triggers stats recalculation with in-memory caching', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final now = DateTime.now();
+      final rec1 = DailyRecord(
+        id: 'r-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now.subtract(const Duration(days: 15)),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 80.0,
+      );
+      final recOld = DailyRecord(
+        id: 'r-old',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now.subtract(const Duration(days: 45)),
+        set: 1,
+        reps: 8,
+        rir: 1.0,
+        weight: 75.0,
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([benchPress.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec1, recOld]);
+
+      final viewModel = ExerciseStatisticsViewModel();
+      await viewModel.init(benchPress.guid);
+
+      // Default is 30 days -> recOld is excluded
+      expect(viewModel.chartPoints.length, equals(1));
+
+      // Switch to 60 days -> recOld is included
+      await viewModel.selectTimeFrame(const TimeFrameOption(label: '2 Months', days: 60));
+      expect(viewModel.chartPoints.length, equals(2));
+
+      // Switch back to 30 days -> served instantly from cache
+      await viewModel.selectTimeFrame(const TimeFrameOption(label: '1 Month', days: 30));
+      expect(viewModel.chartPoints.length, equals(1));
+    });
+
+    test('toggles view mode and selected metric', () async {
+      final viewModel = ExerciseStatisticsViewModel();
+      expect(viewModel.currentViewMode, equals(StatsViewMode.graph));
+      expect(viewModel.selectedMetric, equals(ChartMetricType.estimated1RM));
+
+      viewModel.setViewMode(StatsViewMode.details);
+      expect(viewModel.currentViewMode, equals(StatsViewMode.details));
+
+      viewModel.setSelectedMetric(ChartMetricType.totalVolume);
+      expect(viewModel.selectedMetric, equals(ChartMetricType.totalVolume));
     });
   });
 }
