@@ -59,7 +59,15 @@ class _ExerciseInfoPageState extends State<ExerciseInfoPage> {
   }
 
   Future<void> _checkAuthAndLoadExercises() async {
-    setState(() => _isLoading = true);
+    // 1. Immediately display cached exercises so UI renders without delay
+    final cached = await _driveService.getExercises();
+    if (mounted) {
+      setState(() {
+        _applyFilters();
+        if (cached.isNotEmpty) _isLoading = false;
+      });
+    }
+
     try {
       final signedIn = await _driveService.isSignedIn();
       if (mounted) {
@@ -67,10 +75,11 @@ class _ExerciseInfoPageState extends State<ExerciseInfoPage> {
       }
 
       if (signedIn) {
-        await _driveService.syncFromDrive();
+        // Sync ONLY exercise DB from Drive (avoid downloading Daily_record.xlsx)
+        await _driveService.syncExercisesFromDrive();
+        await _driveService.getExercises();
       }
 
-      await _driveService.getExercises();
       if (mounted) {
         setState(() {
           _applyFilters();
@@ -165,8 +174,11 @@ class _ExerciseInfoPageState extends State<ExerciseInfoPage> {
     try {
       setState(() => _isLoading = true);
       await _driveService.addExercise(name, bodyPart);
-      await _checkAuthAndLoadExercises();
       if (mounted) {
+        setState(() {
+          _applyFilters();
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Exercise added successfully')),
         );
@@ -230,10 +242,13 @@ class _ExerciseInfoPageState extends State<ExerciseInfoPage> {
       try {
         setState(() => _isLoading = true);
         await _driveService.deleteExercise(exercise.guid);
-        await _checkAuthAndLoadExercises();
         if (mounted) {
+          setState(() {
+            _applyFilters();
+            _isLoading = false;
+          });
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Exercise deleted')),
+            SnackBar(content: Text('Exercise "${exercise.name}" deleted')),
           );
         }
       } catch (e) {

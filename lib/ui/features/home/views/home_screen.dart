@@ -6,11 +6,12 @@ import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/section_header.dart';
-import 'package:workout_tracker/ui/core/widgets/weekly_streak_widget.dart';
 import 'package:workout_tracker/ui/features/exercise_info/views/exercise_info_page.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistics_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
 import 'package:workout_tracker/ui/features/workout_split/views/workout_split_page.dart';
+import 'package:workout_tracker/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart';
+import 'package:workout_tracker/ui/features/weekly_activity/views/weekly_activity_section.dart';
 import 'widgets/hero_workout_banner.dart';
 import 'widgets/quick_stat_card.dart';
 
@@ -26,17 +27,22 @@ class _HomeScreenState extends State<HomeScreen> {
   static const _splitStorageKey = 'split_choice';
 
   final GoogleDriveService _driveService = GoogleDriveService();
+  final WeeklyActivityViewModel _weeklyActivityViewModel = WeeklyActivityViewModel();
 
   String _todaysWorkout = 'Rest';
   String _activeSplit = 'Bro Split';
   bool _isLoading = true;
-  Map<String, bool> _weekActivity = {};
-  int _streakCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadDashboardData();
+  }
+
+  @override
+  void dispose() {
+    _weeklyActivityViewModel.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDashboardData() async {
@@ -60,37 +66,14 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // Load weekly activity for streak widget — read all records in the current
-    // Mon–Sun window (not filtered to today-only) so past days are marked.
-    final weekRecords = await _driveService.getWeeklyDailyRecords();
-    final Map<String, bool> activity = {};
-    final now = DateTime.now();
-
-    // Zero-out the time component so date arithmetic is timezone-safe.
-    final today = DateTime(now.year, now.month, now.day);
-    final monday = today.subtract(Duration(days: now.weekday - 1));
-
-    // Build a Set of date strings for O(1) lookup.
-    final recordedDays = weekRecords.map((r) {
-      return DateTime(r.date.year, r.date.month, r.date.day).toIso8601String();
-    }).toSet();
-
-    for (int i = 0; i < 7; i++) {
-      final dayDate = monday.add(Duration(days: i));
-      final dayName = DateFormat('E', 'en_US').format(dayDate); // 'Mon'…'Sun'
-      activity[dayName] = recordedDays.contains(dayDate.toIso8601String());
-    }
-
-    final activeDaysCount = activity.values.where((v) => v).length;
-
     if (!mounted) return;
     setState(() {
       _todaysWorkout = todaysWorkout;
       _activeSplit = savedSplit;
-      _weekActivity = activity;
-      _streakCount = activeDaysCount;
       _isLoading = false;
     });
+
+    await _weeklyActivityViewModel.loadWeeklyActivity();
   }
 
   @override
@@ -173,9 +156,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
 
                   // Weekly Streak Heatmap Card
-                  WeeklyStreakWidget(
-                    weekActivity: _weekActivity,
-                    streakCount: _streakCount,
+                  ListenableBuilder(
+                    listenable: _weeklyActivityViewModel,
+                    builder: (context, _) => WeeklyActivitySection(
+                      weekActivity: _weeklyActivityViewModel.weekActivity,
+                      streakCount: _weeklyActivityViewModel.streakCount,
+                      isLoading: _weeklyActivityViewModel.isLoading,
+                    ),
                   ),
                   const SizedBox(height: 24),
 

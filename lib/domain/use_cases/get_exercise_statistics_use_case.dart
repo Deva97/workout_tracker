@@ -39,20 +39,17 @@ class GetExerciseStatisticsUseCase {
     }
 
     double peak1RM = 0.0;
+    // Group records by day in a single pass while tracking overall peak estimated 1RM
+    final Map<String, List<DailyRecord>> groupedByDay = {};
     for (final r in records) {
       final oneRM = _calculateEstimated1RM(r.weight, r.reps);
       if (oneRM > peak1RM) peak1RM = oneRM;
-    }
 
-    final sessionDates = records.map((r) => '${r.date.year}-${r.date.month}-${r.date.day}').toSet();
-    final totalSessions = sessionDates.length;
-
-    // Group records by day to calculate chronological trend
-    final Map<String, List<DailyRecord>> groupedByDay = {};
-    for (final r in records) {
       final key = '${r.date.year}-${r.date.month.toString().padLeft(2, '0')}-${r.date.day.toString().padLeft(2, '0')}';
       groupedByDay.putIfAbsent(key, () => []).add(r);
     }
+
+    final totalSessions = groupedByDay.length;
 
     final sortedDayKeys = groupedByDay.keys.toList()..sort();
     double trendPercentage = 0.0;

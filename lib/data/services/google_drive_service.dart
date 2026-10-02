@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -23,6 +24,7 @@ class GoogleDriveService {
 
   static const String _cacheKey = 'exercise_cache';
   static const String _dailyRecordCacheKey = 'daily_record_cache';
+  static const String _weeklyActivityCacheKey = 'weekly_activity_cache';
   static const String _folderNameKey = 'workout_folder_id';
   static const String _fileIdKey = 'exercise_file_id';
   static const String _dailyRecordFileIdKey = 'daily_record_file_id';
@@ -51,6 +53,11 @@ class GoogleDriveService {
 
   /// Real-time Sync State Notifier (synced, syncing, error)
   final ValueNotifier<SyncState> syncStateNotifier = ValueNotifier(SyncState.synced);
+
+  // Debouncing & serialization for daily record Drive uploads
+  Timer? _dailyRecordSyncDebounceTimer;
+  Future<void>? _inFlightDailyRecordSync;
+  bool _pendingDailyRecordSyncRequested = false;
 
   Future<GoogleSignInAccount?> signIn() async {
     try {
@@ -131,17 +138,23 @@ class GoogleDriveService {
     final folderId = await _getOrCreateFolder();
     final prefs = await SharedPreferences.getInstance();
 
-    // Check Exercise_DB.xlsx
     final query1 = "name='$_exerciseDbFileName' and '$folderId' in parents and trashed=false";
-    final list1 = await _driveApi!.files.list(q: query1, spaces: 'drive', pageSize: 5);
+    final query2 = "name='$_dailyRecordFileName' and '$folderId' in parents and trashed=false";
+
+    // Query both sheets in parallel to cut latency in half
+    final results = await Future.wait([
+      _driveApi!.files.list(q: query1, spaces: 'drive', pageSize: 5),
+      _driveApi!.files.list(q: query2, spaces: 'drive', pageSize: 5),
+    ]);
+
+    final list1 = results[0];
+    final list2 = results[1];
+
     final exerciseDbExists = list1.files != null && list1.files!.isNotEmpty;
     if (exerciseDbExists) {
       await prefs.setString(_fileIdKey, list1.files!.first.id!);
     }
 
-    // Check Daily_record.xlsx
-    final query2 = "name='$_dailyRecordFileName' and '$folderId' in parents and trashed=false";
-    final list2 = await _driveApi!.files.list(q: query2, spaces: 'drive', pageSize: 5);
     final dailyRecordExists = list2.files != null && list2.files!.isNotEmpty;
     if (dailyRecordExists) {
       await prefs.setString(_dailyRecordFileIdKey, list2.files!.first.id!);
@@ -246,8 +259,8 @@ class GoogleDriveService {
     return response.id!;
   }
 
-  /// Download and sync exercises from Google Drive using ExcelORM
-  Future<void> syncFromDrive() async {
+  /// Download and sync only Exercise_DB.xlsx from Google Drive using ExcelORM
+  Future<void> syncExercisesFromDrive() async {
     await ensureDriveApiReady();
     if (_driveApi == null) return;
 
@@ -276,15 +289,18 @@ class GoogleDriveService {
 
       // Parse bytes via ExcelORM DbContext
       dbContext.loadExerciseDbFromBytes(bytes);
-      final exercises = dbContext.exercises.toList();
+      final exercises = dbContext.readExercises();
 
       await _cacheExercises(exercises);
-
-      // Also sync daily records
-      await syncDailyRecordsFromDrive();
     } catch (e) {
-      debugPrint('syncFromDrive: error syncing from Drive: $e');
+      debugPrint('syncExercisesFromDrive: error syncing from Drive: $e');
     }
+  }
+
+  /// Download and sync both exercises and daily records from Google Drive
+  Future<void> syncFromDrive() async {
+    await syncExercisesFromDrive();
+    await syncDailyRecordsFromDrive();
   }
 
   /// Upload exercises to Google Drive Exercise_DB.xlsx file using ExcelORM
@@ -311,8 +327,7 @@ class GoogleDriveService {
       }
 
       // Update DbContext table & encode to bytes
-      dbContext.exercises.clear();
-      dbContext.exercises.addAll(exercises);
+      dbContext.replaceExercises(exercises);
       final bytes = dbContext.saveExerciseDbToBytes();
 
       // Upload directly from memory — no temp file needed
@@ -339,7 +354,7 @@ class GoogleDriveService {
     exercises.add(exercise);
 
     // Sync DbContext table
-    dbContext.exercises.add(exercise);
+    dbContext.addExercise(exercise);
 
     await _cacheExercises(exercises);
 
@@ -364,8 +379,7 @@ class GoogleDriveService {
           .map((item) => Exercise.fromMap(item as Map<String, dynamic>))
           .toList();
 
-      dbContext.exercises.clear();
-      dbContext.exercises.addAll(exercises);
+      dbContext.replaceExercises(exercises);
 
       return exercises;
     } catch (e) {
@@ -379,7 +393,7 @@ class GoogleDriveService {
     final exercises = await getExercises();
     exercises.removeWhere((e) => e.guid == guid);
 
-    dbContext.exercises.deleteWhere((e) => e.guid == guid);
+    dbContext.deleteExercisesWhere((e) => e.guid == guid);
 
     await _cacheExercises(exercises);
 
@@ -431,7 +445,7 @@ class GoogleDriveService {
 
       // Parse full bytes into DbContext
       dbContext.loadDailyRecordFromBytes(bytes);
-      final records = dbContext.dailyRecords.toList();
+      final records = dbContext.readDailyRecords();
 
       // Enforce Purge Policy: Store ONLY today's records in local SharedPreferences cache memory
       await _cacheDailyRecords(records);
@@ -478,7 +492,7 @@ class GoogleDriveService {
         // Parse existing records from Drive into a temporary context
         final tempContext = WorkoutDbContext();
         tempContext.loadDailyRecordFromBytes(existingBytes);
-        final existingRecords = tempContext.dailyRecords.toList();
+        final existingRecords = tempContext.readDailyRecords();
 
         // Keep all historical (non-today) records from Drive
         final now = DateTime.now();
@@ -488,17 +502,19 @@ class GoogleDriveService {
             r.date.day != now.day).toList();
 
         // Merge: historical from Drive + today's from local
-        mergedRecords = [...historicalRecords, ...todayRecords];
+        mergedRecords = [...historicalRecords, ...todayRecords]
+          ..sort((a, b) => a.date.compareTo(b.date));
       } catch (e) {
         // If download fails, just upload today's records (first-time or corrupted file)
         debugPrint('Merge-sync: could not download existing records, uploading today only: $e');
         mergedRecords = todayRecords;
       }
 
-      // Write merged records to Drive
-      dbContext.dailyRecords.clear();
-      dbContext.dailyRecords.addAll(mergedRecords);
-      final bytes = dbContext.saveDailyRecordToBytes();
+      // Use isolated temporary context to encode merged records for Drive upload,
+      // ensuring singleton dbContext remains clean and untouched.
+      final uploadContext = WorkoutDbContext();
+      uploadContext.replaceDailyRecords(mergedRecords);
+      final bytes = uploadContext.saveDailyRecordToBytes();
 
       final uploadMedia = drive.Media(
         Stream.value(bytes),
@@ -510,10 +526,6 @@ class GoogleDriveService {
         fileId,
         uploadMedia: uploadMedia,
       );
-
-      // Restore dbContext to only today's records for the UI
-      dbContext.dailyRecords.clear();
-      dbContext.dailyRecords.addAll(todayRecords);
     } catch (e) {
       rethrow;
     }
@@ -539,8 +551,7 @@ class GoogleDriveService {
         await _cacheDailyRecords(todayRecords);
       }
 
-      dbContext.dailyRecords.clear();
-      dbContext.dailyRecords.addAll(todayRecords);
+      dbContext.replaceDailyRecords(todayRecords);
 
       return todayRecords;
     } catch (e) {
@@ -549,44 +560,78 @@ class GoogleDriveService {
     }
   }
 
-  /// Returns all [DailyRecord] entries whose date falls within the current
-  /// Monday–Sunday week, read directly from SharedPreferences without applying
-  /// the today-only purge policy. Safe to call for the weekly activity heatmap.
-  Future<List<DailyRecord>> getWeeklyDailyRecords() async {
+  /// Returns [DailyRecord] entries from the current Monday–Sunday week.
+  ///
+  /// Reads recent rows from Drive when it is initialized and keeps a separate
+  /// week cache so the today-only cache purge does not erase prior activity.
+  Future<List<DailyRecord>> getWeeklyDailyRecords([DateTime? referenceDate]) async {
     final prefs = await SharedPreferences.getInstance();
-    final cached = prefs.getString(_dailyRecordCacheKey);
-    if (cached == null) return [];
+    final now = referenceDate ?? DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final monday = today.subtract(Duration(days: now.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
 
-    try {
-      final jsonList = jsonDecode(cached) as List<dynamic>;
-      final rawRecords = jsonList
-          .map((item) => DailyRecord.fromMap(item as Map<String, dynamic>))
-          .toList();
-
-      // Determine Monday of the current week (time-zeroed to avoid timezone drift)
-      final now = DateTime.now();
-      final monday = DateTime(
-        now.year,
-        now.month,
-        now.day - (now.weekday - 1), // weekday: Mon=1 … Sun=7
-      );
-
-      return rawRecords.where((r) {
-        final recordDay = DateTime(r.date.year, r.date.month, r.date.day);
-        return !recordDay.isBefore(monday) &&
-            recordDay.isBefore(monday.add(const Duration(days: 7)));
-      }).toList();
-    } catch (e) {
-      debugPrint('getWeeklyDailyRecords: error reading cache: $e');
-      return [];
+    List<DailyRecord> readRecords(String? encodedRecords) {
+      if (encodedRecords == null) return [];
+      try {
+        final jsonList = jsonDecode(encodedRecords) as List<dynamic>;
+        return jsonList
+            .map((item) => DailyRecord.fromMap(item as Map<String, dynamic>))
+            .toList();
+      } catch (e) {
+        debugPrint('getWeeklyDailyRecords: error reading cached records: $e');
+        return [];
+      }
     }
+
+    DateTime dayOf(DailyRecord record) =>
+        DateTime(record.date.year, record.date.month, record.date.day);
+
+    bool isInWeek(DailyRecord record) {
+      final day = dayOf(record);
+      return !day.isBefore(monday) && day.isBefore(nextMonday);
+    }
+
+    final recordsById = <String, DailyRecord>{
+      for (final record in readRecords(prefs.getString(_weeklyActivityCacheKey)))
+        if (isInWeek(record)) record.id: record,
+    };
+
+    if (_driveApi != null) {
+      try {
+        final sheetRecords = await _loadDailyRecordsFromDrive(since: monday);
+        recordsById
+          ..clear()
+          ..addEntries(
+            sheetRecords
+                .where(isInWeek)
+                .map((record) => MapEntry(record.id, record)),
+          );
+      } catch (e) {
+        debugPrint('getWeeklyDailyRecords: failed to load sheet history: $e');
+      }
+    }
+
+    for (final record in readRecords(prefs.getString(_dailyRecordCacheKey))) {
+      if (isInWeek(record) && dayOf(record) == today) {
+        recordsById[record.id] = record;
+      }
+    }
+
+    final weeklyRecords = recordsById.values.toList()
+      ..sort((a, b) => a.date.compareTo(b.date));
+    await prefs.setString(
+      _weeklyActivityCacheKey,
+      jsonEncode(weeklyRecords.map((record) => record.toMap()).toList()),
+    );
+    return weeklyRecords;
   }
 
   /// Optimistically add a workout set: updates local cache & memory instantly,
   /// then asynchronously uploads to Google Drive Excel in the background without blocking the UI.
   Future<DailyRecord> addDailyRecordOptimistic(DailyRecord record) async {
-    dbContext.dailyRecords.add(record);
-    await _cacheDailyRecords(dbContext.dailyRecords.toList());
+    dbContext.addDailyRecord(record);
+    await _cacheDailyRecords(dbContext.readDailyRecords());
 
     // Fire background Excel upload non-blockingly
     syncDailyRecordsToDriveInBackground();
@@ -597,8 +642,8 @@ class GoogleDriveService {
   /// Optimistically edit a workout set: updates local cache & memory instantly,
   /// then asynchronously uploads to Google Drive Excel in the background without blocking the UI.
   Future<DailyRecord> editDailyRecordOptimistic(DailyRecord record) async {
-    dbContext.dailyRecords.update(record, (r) => r.id == record.id);
-    await _cacheDailyRecords(dbContext.dailyRecords.toList());
+    dbContext.updateDailyRecord(record, (r) => r.id == record.id);
+    await _cacheDailyRecords(dbContext.readDailyRecords());
 
     // Fire background Excel upload non-blockingly
     syncDailyRecordsToDriveInBackground();
@@ -609,42 +654,82 @@ class GoogleDriveService {
   /// Optimistically delete a workout set: updates local cache & memory instantly,
   /// then asynchronously uploads to Google Drive Excel in the background without blocking the UI.
   Future<void> deleteDailyRecordOptimistic(String id) async {
-    dbContext.dailyRecords.deleteWhere((r) => r.id == id);
-    await _cacheDailyRecords(dbContext.dailyRecords.toList());
+    dbContext.deleteDailyRecordsWhere((r) => r.id == id);
+    await _cacheDailyRecords(dbContext.readDailyRecords());
 
     // Fire background Excel upload non-blockingly
     syncDailyRecordsToDriveInBackground();
   }
 
-  /// Background upload worker: updates syncStateNotifier to syncing -> synced or error
-  Future<void> syncDailyRecordsToDriveInBackground() async {
+  /// Background upload worker: debounces and serializes uploads to coalesce rapid mutations
+  /// (e.g. multiple sets logged in quick succession) into a single serialized Drive operation.
+  Future<void> syncDailyRecordsToDriveInBackground({
+    Duration debounce = const Duration(milliseconds: 1500),
+  }) async {
+    _dailyRecordSyncDebounceTimer?.cancel();
+    if (debounce == Duration.zero) {
+      return _executeSerializedDailyRecordSync();
+    }
+    _dailyRecordSyncDebounceTimer = Timer(debounce, () {
+      _executeSerializedDailyRecordSync();
+    });
+  }
+
+  Future<void> _executeSerializedDailyRecordSync() async {
+    if (_inFlightDailyRecordSync != null) {
+      // An upload is already in flight. Mark pending so it runs again with the latest snapshot upon finish.
+      _pendingDailyRecordSyncRequested = true;
+      return;
+    }
+
     syncStateNotifier.value = SyncState.syncing;
+    _inFlightDailyRecordSync = _performDailyRecordSync();
+    try {
+      await _inFlightDailyRecordSync;
+    } finally {
+      _inFlightDailyRecordSync = null;
+      if (_pendingDailyRecordSyncRequested) {
+        _pendingDailyRecordSyncRequested = false;
+        // Schedule next sync with the latest snapshot of today's records
+        _executeSerializedDailyRecordSync();
+      }
+    }
+  }
+
+  Future<void> _performDailyRecordSync() async {
     try {
       await ensureDriveApiReady();
       if (_driveApi != null) {
-        await syncDailyRecordsToDrive(dbContext.dailyRecords.toList());
+        await syncDailyRecordsToDrive(dbContext.readDailyRecords());
       }
       syncStateNotifier.value = SyncState.synced;
     } catch (e) {
+      debugPrint('syncDailyRecordsToDriveInBackground error: $e');
       syncStateNotifier.value = SyncState.error;
     }
   }
 
+  /// Cancels any pending debounced sync timers (helpful in tests or screen disposal).
+  void cancelPendingSync() {
+    _dailyRecordSyncDebounceTimer?.cancel();
+    _pendingDailyRecordSyncRequested = false;
+  }
+
   /// Manual Sync action triggered by tapping the "Sync" button.
-  /// Synchronizes local DbContext records with Google Drive Excel.
+  /// Cancels pending debounce and executes immediate serialized sync with Google Drive Excel.
   Future<SyncState> manualSyncToExcel() async {
-    syncStateNotifier.value = SyncState.syncing;
+    _dailyRecordSyncDebounceTimer?.cancel();
     try {
       await ensureDriveApiReady();
       if (_driveApi != null) {
-        await syncDailyRecordsToDrive(dbContext.dailyRecords.toList());
-        syncStateNotifier.value = SyncState.synced;
-        return SyncState.synced;
+        if (_inFlightDailyRecordSync != null) {
+          await _inFlightDailyRecordSync;
+        }
+        await _performDailyRecordSync();
       } else {
-        // Not signed in to Google Drive
         syncStateNotifier.value = SyncState.synced;
-        return SyncState.synced;
       }
+      return syncStateNotifier.value;
     } catch (e) {
       syncStateNotifier.value = SyncState.error;
       return SyncState.error;
@@ -688,7 +773,7 @@ class GoogleDriveService {
     String? category,
     String? searchQuery,
   }) {
-    var query = dbContext.exercises.query();
+    var query = dbContext.queryExercises();
 
     if (category != null && category != 'All') {
       query = query.where((e) => e.bodyPart == category);
@@ -704,13 +789,13 @@ class GoogleDriveService {
 
   /// Get exercise by GUID using ExcelORM
   Exercise? getExerciseById(String guid) {
-    return dbContext.exercises.firstOrDefault((e) => e.guid == guid);
+    return dbContext.firstExerciseOrDefault((e) => e.guid == guid);
   }
 
   /// Get exercises by category using ExcelORM
   List<Exercise> getExercisesByCategory(String category) {
-    if (category == 'All') return dbContext.exercises.toList();
-    return dbContext.exercises.whereQuery((e) => e.bodyPart == category).toList();
+    if (category == 'All') return dbContext.readExercises();
+    return dbContext.queryExercises().where((e) => e.bodyPart == category).toList();
   }
 
   /// Query daily records using ExcelORM
@@ -720,7 +805,7 @@ class GoogleDriveService {
     DateTime? startDate,
     DateTime? endDate,
   }) {
-    var query = dbContext.dailyRecords.query();
+    var query = dbContext.queryDailyRecords();
 
     if (workoutId != null && workoutId.isNotEmpty) {
       query = query.where((r) => r.workoutId == workoutId);
@@ -742,8 +827,8 @@ class GoogleDriveService {
     return query;
   }
 
-  /// Query historical DailyRecord entries matching workoutId within the last [daysLimit] days.
-  /// Downloads full history from Google Drive to avoid the today-only cache limitation.
+  /// Queries historical DailyRecord entries matching workoutId within [daysLimit] days.
+  /// Downloads matching recent rows from Google Drive when available.
   Future<List<DailyRecord>> queryExerciseHistory(String workoutId, {int daysLimit = 30}) async {
     final startDate = DateTime.now().subtract(Duration(days: daysLimit));
     final cutoff = DateTime(startDate.year, startDate.month, startDate.day);
@@ -751,13 +836,13 @@ class GoogleDriveService {
     List<DailyRecord> allRecords = [];
     if (_driveApi != null) {
       try {
-        allRecords = await _loadFullHistoryFromDrive();
+        allRecords = await _loadDailyRecordsFromDrive(since: cutoff);
       } catch (e) {
         debugPrint('queryExerciseHistory: failed to load from Drive, using local context: $e');
-        allRecords = dbContext.dailyRecords.toList();
+        allRecords = dbContext.readDailyRecords();
       }
     } else {
-      allRecords = dbContext.dailyRecords.toList();
+      allRecords = dbContext.readDailyRecords();
     }
 
     return allRecords
@@ -766,10 +851,8 @@ class GoogleDriveService {
       ..sort((a, b) => a.date.compareTo(b.date));
   }
 
-  /// Downloads the full Daily_record.xlsx from Google Drive and returns all records
-  /// without modifying the local dbContext or cache. Used for historical queries.
-  Future<List<DailyRecord>> _loadFullHistoryFromDrive() async {
-    await ensureDriveApiReady();
+  /// Downloads Daily_record.xlsx and parses from its last row, stopping before [since].
+  Future<List<DailyRecord>> _loadDailyRecordsFromDrive({required DateTime since}) async {
     if (_driveApi == null) {
       throw Exception('Drive API not available');
     }
@@ -795,10 +878,10 @@ class GoogleDriveService {
     ) as drive.Media;
     final bytes = await _readStream(media.stream);
 
-    // Parse into a temporary context to avoid polluting the today-only context
+    // Parse into a temporary context to avoid polluting the today-only context.
     final tempContext = WorkoutDbContext();
-    tempContext.loadDailyRecordFromBytes(bytes);
-    return tempContext.dailyRecords.toList();
+    tempContext.loadRecentDailyRecordsFromBytes(bytes, since: since);
+    return tempContext.readDailyRecords();
   }
 
   /// Cache exercises locally

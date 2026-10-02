@@ -4,6 +4,7 @@ import '../models/daily_workout_entry.dart';
 abstract class WorkoutRepository {
   Future<List<DailyWorkoutEntry>> getTodaysWorkoutEntries([DateTime? date]);
   Future<List<DailyRecord>> getDailyRecords();
+  Future<List<DailyRecord>> getWeeklyDailyRecords([DateTime? referenceDate]);
   Future<DailyRecord> addDailyRecord(DailyRecord record);
   Future<DailyRecord> editDailyRecord(DailyRecord record);
   Future<void> deleteDailyRecord(String id);

@@ -31,7 +31,6 @@ class _SplashScreenState extends State<SplashScreen> {
       _message = 'Verifying Google Account...';
       _subMessage = 'Checking authentication status';
     });
-    await Future<void>.delayed(const Duration(milliseconds: 600));
 
     final isSignedIn = await _driveService.initializeIfSignedIn();
 
@@ -49,7 +48,6 @@ class _SplashScreenState extends State<SplashScreen> {
       _message = 'Validating Google Drive Databases...';
       _subMessage = 'Searching for Exercise_DB.xlsx & Daily_record.xlsx';
     });
-    await Future<void>.delayed(const Duration(milliseconds: 600));
 
     try {
       final status = await _driveService.checkSheetsExistence();

@@ -4,12 +4,19 @@ import 'excel_table.dart';
 
 /// Base Unit of Work context for reading, manipulating, and saving Excel workbooks.
 abstract class ExcelContext {
-  /// Parses Excel file bytes into a strongly-typed [ExcelTable<T>].
+  /// Parses Excel bytes into a strongly-typed [ExcelTable<T>].
+  ///
+  /// When [reverseRows] is true, rows are visited from bottom to top and
+  /// parsing stops before adding the first entity for which [stopWhen] returns
+  /// true.
   ExcelTable<T> loadTableFromBytes<T>({
     required List<int> bytes,
     required ExcelEntityMapper<T> mapper,
     String? sheetName,
+    bool reverseRows = false,
+    bool Function(T entity)? stopWhen,
   }) {
+    assert(stopWhen == null || reverseRows);
     final decoder = Excel.decodeBytes(bytes);
     if (decoder.tables.isEmpty) {
       return ExcelTable<T>(sheetName: sheetName ?? 'Sheet1', mapper: mapper);
@@ -29,7 +36,14 @@ abstract class ExcelContext {
 
     final entities = <T>[];
 
-    for (int i = 1; i < sheet.maxRows; i++) {
+    final rowIndices = reverseRows
+        ? Iterable<int>.generate(
+            sheet.maxRows - 1,
+            (index) => sheet.maxRows - index - 1,
+          )
+        : Iterable<int>.generate(sheet.maxRows - 1, (index) => index + 1);
+
+    for (final i in rowIndices) {
       final row = sheet.row(i);
       if (row.isEmpty) continue;
 
@@ -48,14 +62,16 @@ abstract class ExcelContext {
       });
 
       if (hasData) {
-        entities.add(mapper.fromRow(rowMap));
+        final entity = mapper.fromRow(rowMap);
+        if (stopWhen?.call(entity) ?? false) break;
+        entities.add(entity);
       }
     }
 
     return ExcelTable<T>(
       sheetName: targetSheetName,
       mapper: mapper,
-      initialEntities: entities,
+      initialEntities: reverseRows ? entities.reversed.toList() : entities,
     );
   }
 

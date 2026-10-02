@@ -21,77 +21,115 @@ void main() {
 
     test('where filtering works correctly', () {
       final context = WorkoutDbContext();
-      context.exercises.addAll(sampleExercises);
+      context.replaceExercises(sampleExercises);
 
-      final chestExercises = context.exercises.whereQuery((e) => e.bodyPart == 'Chest').toList();
+      final chestExercises = context.queryExercises().where((e) => e.bodyPart == 'Chest').toList();
       expect(chestExercises.length, equals(2));
       expect(chestExercises.map((e) => e.name), containsAll(['Bench Press', 'Incline Dumbbell Press']));
     });
 
     test('orderBy and orderByDescending work correctly', () {
       final context = WorkoutDbContext();
-      context.exercises.addAll(sampleExercises);
+      context.replaceExercises(sampleExercises);
 
-      final sortedAsc = context.exercises.orderBy((e) => e.name).toList();
+      final sortedAsc = context.queryExercises().orderBy((e) => e.name).toList();
       expect(sortedAsc.first.name, equals('Barbell Curl'));
       expect(sortedAsc.last.name, equals('Squat'));
 
-      final sortedDesc = context.exercises.orderByDescending((e) => e.name).toList();
+      final sortedDesc = context.queryExercises().orderByDescending((e) => e.name).toList();
       expect(sortedDesc.first.name, equals('Squat'));
       expect(sortedDesc.last.name, equals('Barbell Curl'));
     });
 
     test('skip and take pagination work correctly', () {
       final context = WorkoutDbContext();
-      context.exercises.addAll(sampleExercises);
+      context.replaceExercises(sampleExercises);
 
-      final page = context.exercises.orderBy((e) => e.name).skip(2).take(3).toList();
+      final page = context.queryExercises().orderBy((e) => e.name).skip(2).take(3).toList();
       expect(page.length, equals(3));
     });
 
     test('firstOrDefault, count, any, and all work correctly', () {
       final context = WorkoutDbContext();
-      context.exercises.addAll(sampleExercises);
+      context.replaceExercises(sampleExercises);
 
-      final squat = context.exercises.firstOrDefault((e) => e.name == 'Squat');
+      final squat = context.firstExerciseOrDefault((e) => e.name == 'Squat');
       expect(squat, isNotNull);
       expect(squat!.bodyPart, equals('Legs'));
 
-      final missing = context.exercises.firstOrDefault((e) => e.name == 'NonExistent');
+      final missing = context.firstExerciseOrDefault((e) => e.name == 'NonExistent');
       expect(missing, isNull);
 
-      expect(context.exercises.query().count((e) => e.bodyPart == 'Back'), equals(2));
-      expect(context.exercises.query().any((e) => e.name == 'Barbell Row'), isTrue);
-      expect(context.exercises.query().all((e) => e.guid.isNotEmpty), isTrue);
+      expect(context.queryExercises().count((e) => e.bodyPart == 'Back'), equals(2));
+      expect(context.queryExercises().any((e) => e.name == 'Barbell Row'), isTrue);
+      expect(context.queryExercises().all((e) => e.guid.isNotEmpty), isTrue);
     });
   });
 
   group('ExcelORM - Table Repository CRUD Operations', () {
-    test('add, update, delete operations track state correctly', () {
+    test('exercise context CRUD operations track state correctly', () {
       final context = WorkoutDbContext();
 
-      // Add
       final ex1 = Exercise(guid: '101', name: 'Deadlift', bodyPart: 'Back');
-      context.exercises.add(ex1);
-      expect(context.exercises.length, equals(1));
+      context.addExercise(ex1);
+      expect(context.readExercises().length, equals(1));
 
-      // Update
       final updatedEx1 = Exercise(guid: '101', name: 'Sumo Deadlift', bodyPart: 'Back');
-      final updated = context.exercises.update(updatedEx1, (e) => e.guid == '101');
-      expect(updated, isTrue);
-      expect(context.exercises.first.name, equals('Sumo Deadlift'));
+      expect(context.updateExercise(updatedEx1, (e) => e.guid == '101'), isTrue);
+      expect(context.readExercises().first.name, equals('Sumo Deadlift'));
 
-      // Delete
-      final deleted = context.exercises.deleteWhere((e) => e.guid == '101');
-      expect(deleted, equals(1));
-      expect(context.exercises.isEmpty, isTrue);
+      expect(context.deleteExercisesWhere((e) => e.guid == '101'), equals(1));
+      expect(context.readExercises().isEmpty, isTrue);
+      expect(context.updateExercise(ex1, (e) => e.guid == 'missing'), isFalse);
+    });
+
+    test('daily record context CRUD operations track state correctly', () {
+      final context = WorkoutDbContext();
+      final record = DailyRecord(
+        id: 'record-1',
+        workoutId: 'exercise-1',
+        workoutName: 'Deadlift',
+        date: DateTime(2026, 9, 1),
+        set: 1,
+        reps: 5,
+        rir: 2,
+        weight: 100,
+      );
+      context.addDailyRecord(record);
+
+      final updated = DailyRecord(
+        id: 'record-1',
+        workoutId: 'exercise-1',
+        workoutName: 'Deadlift',
+        date: record.date,
+        set: 1,
+        reps: 5,
+        rir: 1,
+        weight: 105,
+      );
+      expect(context.updateDailyRecord(updated, (existing) => existing.id == record.id), isTrue);
+      expect(context.readDailyRecords().first.weight, equals(105));
+      expect(context.deleteDailyRecordsWhere((existing) => existing.id == record.id), equals(1));
+      expect(context.readDailyRecords(), isEmpty);
+      expect(context.deleteDailyRecordsWhere((existing) => existing.id == record.id), equals(0));
+    });
+
+    test('replace operations snapshot input and replace existing rows', () {
+      final context = WorkoutDbContext();
+      context.addExercise(Exercise(guid: 'old', name: 'Old', bodyPart: 'Back'));
+
+      context.replaceExercises([
+        Exercise(guid: 'new', name: 'New', bodyPart: 'Chest'),
+      ]);
+
+      expect(context.readExercises().map((exercise) => exercise.guid), ['new']);
     });
   });
 
   group('ExcelORM - Context Excel Bytes Encoding & Decoding', () {
     test('Exercise_DB.xlsx roundtrip encoding and decoding preserves data', () {
       final context = WorkoutDbContext();
-      context.exercises.addAll([
+      context.replaceExercises([
         Exercise(guid: 'ex-1', name: 'Push Up', bodyPart: 'Chest'),
         Exercise(guid: 'ex-2', name: 'Pull Up', bodyPart: 'Back'),
       ]);
@@ -104,17 +142,17 @@ void main() {
       final restoredContext = WorkoutDbContext();
       restoredContext.loadExerciseDbFromBytes(bytes);
 
-      expect(restoredContext.exercises.length, equals(2));
-      expect(restoredContext.exercises.first.guid, equals('ex-1'));
-      expect(restoredContext.exercises.first.name, equals('Push Up'));
-      expect(restoredContext.exercises.first.bodyPart, equals('Chest'));
-      expect(restoredContext.exercises.last.name, equals('Pull Up'));
+      expect(restoredContext.readExercises().length, equals(2));
+      expect(restoredContext.readExercises().first.guid, equals('ex-1'));
+      expect(restoredContext.readExercises().first.name, equals('Push Up'));
+      expect(restoredContext.readExercises().first.bodyPart, equals('Chest'));
+      expect(restoredContext.readExercises().last.name, equals('Pull Up'));
     });
 
     test('Daily_record.xlsx roundtrip encoding and decoding preserves typed fields', () {
       final now = DateTime(2026, 9, 1, 10, 30);
       final context = WorkoutDbContext();
-      context.dailyRecords.add(
+      context.addDailyRecord(
         DailyRecord(
           id: 'rec-1',
           workoutId: 'w-101',
@@ -133,8 +171,8 @@ void main() {
       final restoredContext = WorkoutDbContext();
       restoredContext.loadDailyRecordFromBytes(bytes);
 
-      expect(restoredContext.dailyRecords.length, equals(1));
-      final record = restoredContext.dailyRecords.first;
+      expect(restoredContext.readDailyRecords().length, equals(1));
+      final record = restoredContext.readDailyRecords().first;
       expect(record.id, equals('rec-1'));
       expect(record.workoutId, equals('w-101'));
       expect(record.workoutName, equals('Chest Day'));
@@ -142,6 +180,49 @@ void main() {
       expect(record.reps, equals(10));
       expect(record.rir, equals(2.0));
       expect(record.weight, equals(75.5));
+    });
+
+    test('recent daily rows load backwards and stop before the date boundary', () {
+      final context = WorkoutDbContext();
+      DailyRecord record(String id, DateTime date) => DailyRecord(
+            id: id,
+            workoutId: 'exercise-1',
+            workoutName: 'Workout',
+            date: date,
+            set: 1,
+            reps: 8,
+            rir: 2,
+          );
+      context.replaceDailyRecords([
+        record('older-1', DateTime(2026, 9, 20)),
+        record('older-2', DateTime(2026, 9, 27)),
+        record('monday', DateTime(2026, 9, 28)),
+        record('friday', DateTime(2026, 10, 2)),
+        record('saturday', DateTime(2026, 10, 3)),
+      ]);
+      final bytes = context.saveDailyRecordToBytes();
+      var scannedRecords = 0;
+
+      final recentRecords = context
+          .loadTableFromBytes<DailyRecord>(
+            bytes: bytes,
+            mapper: DailyRecord.excelMapper,
+            sheetName: 'Sheet1',
+            reverseRows: true,
+            stopWhen: (record) {
+              scannedRecords++;
+              final recordDay = DateTime(
+                record.date.year,
+                record.date.month,
+                record.date.day,
+              );
+              return recordDay.isBefore(DateTime(2026, 9, 28));
+            },
+          )
+          .toList();
+
+      expect(recentRecords.map((record) => record.id), ['monday', 'friday', 'saturday']);
+      expect(scannedRecords, 4);
     });
   });
 }

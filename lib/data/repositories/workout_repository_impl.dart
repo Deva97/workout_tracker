@@ -20,6 +20,11 @@ class WorkoutRepositoryImpl implements WorkoutRepository {
   }
 
   @override
+  Future<List<DailyRecord>> getWeeklyDailyRecords([DateTime? referenceDate]) {
+    return _driveService.getWeeklyDailyRecords(referenceDate);
+  }
+
+  @override
   Future<DailyRecord> addDailyRecord(DailyRecord record) {
     return _driveService.addDailyRecordOptimistic(record);
   }

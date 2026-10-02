@@ -35,9 +35,23 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
   }
 
   Future<void> _loadTodaysWorkoutLog() async {
+    // 1. Immediately render cached data if present so opening the screen is instant
+    final cachedExercises = _driveService.dbContext.readExercises();
+    final cachedEntries = _driveService.dbContext.getTodaysWorkoutEntries();
+    if (cachedExercises.isNotEmpty || cachedEntries.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _availableExercises = cachedExercises;
+          _todaysEntries = cachedEntries;
+          _isLoading = false;
+        });
+      }
+    }
+
+    // 2. Refresh from Drive in background (getTodaysWorkoutEntries automatically loads exercises)
     try {
-      final exercises = await _driveService.getExercises();
       final entries = await _driveService.getTodaysWorkoutEntries();
+      final exercises = _driveService.dbContext.readExercises();
 
       if (!mounted) return;
       setState(() {
@@ -47,7 +61,9 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      if (_availableExercises.isEmpty && _todaysEntries.isEmpty) {
+        setState(() => _isLoading = false);
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error loading today\'s workout: $e')),
       );
@@ -399,47 +415,49 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
                                                     // Metrics: Weight & Reps & RIR
                                                     Expanded(
-                                                      child: Row(
-                                                        children: [
-                                                          if (entry.record.weight > 0) ...[
-                                                            Text(
-                                                              '${entry.record.weight} kg',
+                                                      child: Text.rich(
+                                                        TextSpan(
+                                                          children: [
+                                                            if (entry.record.weight > 0) ...[
+                                                              TextSpan(
+                                                                text: '${entry.record.weight} kg',
+                                                                style: TextStyle(
+                                                                  fontWeight: FontWeight.w700,
+                                                                  fontSize: 14,
+                                                                  color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                                                ),
+                                                              ),
+                                                              TextSpan(
+                                                                text: '  •  ',
+                                                                style: TextStyle(
+                                                                  color: isDark ? Colors.white30 : Colors.grey.shade400,
+                                                                ),
+                                                              ),
+                                                            ],
+                                                            TextSpan(
+                                                              text: '${entry.record.reps} reps',
                                                               style: TextStyle(
-                                                                fontWeight: FontWeight.w700,
-                                                                fontSize: 14,
+                                                                fontWeight: FontWeight.w600,
+                                                                fontSize: 13,
                                                                 color: isDark ? AppColors.textLight : AppColors.textPrimary,
                                                               ),
                                                             ),
-                                                            const SizedBox(width: 6),
-                                                            Text(
-                                                              '•',
-                                                              style: TextStyle(color: isDark ? Colors.white30 : Colors.grey.shade400),
+                                                            TextSpan(
+                                                              text: '  •  ',
+                                                              style: TextStyle(
+                                                                color: isDark ? Colors.white30 : Colors.grey.shade400,
+                                                              ),
                                                             ),
-                                                            const SizedBox(width: 6),
+                                                            TextSpan(
+                                                              text: 'RIR ${entry.record.rir}',
+                                                              style: TextStyle(
+                                                                fontWeight: FontWeight.w500,
+                                                                fontSize: 12,
+                                                                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                                                              ),
+                                                            ),
                                                           ],
-                                                          Text(
-                                                            '${entry.record.reps} reps',
-                                                            style: TextStyle(
-                                                              fontWeight: FontWeight.w600,
-                                                              fontSize: 13,
-                                                              color: isDark ? AppColors.textLight : AppColors.textPrimary,
-                                                            ),
-                                                          ),
-                                                          const SizedBox(width: 6),
-                                                          Text(
-                                                            '•',
-                                                            style: TextStyle(color: isDark ? Colors.white30 : Colors.grey.shade400),
-                                                          ),
-                                                          const SizedBox(width: 6),
-                                                          Text(
-                                                            'RIR ${entry.record.rir}',
-                                                            style: TextStyle(
-                                                              fontWeight: FontWeight.w500,
-                                                              fontSize: 12,
-                                                              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
-                                                            ),
-                                                          ),
-                                                        ],
+                                                        ),
                                                       ),
                                                     ),
 

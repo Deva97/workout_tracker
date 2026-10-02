@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,8 +13,8 @@ import 'package:workout_tracker/data/services/google_drive_service.dart';
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    GoogleDriveService().dbContext.exercises.clear();
-    GoogleDriveService().dbContext.dailyRecords.clear();
+    GoogleDriveService().dbContext.replaceExercises([]);
+    GoogleDriveService().dbContext.replaceDailyRecords([]);
     GoogleDriveService().syncStateNotifier.value = SyncState.synced;
   });
 
@@ -22,10 +24,10 @@ void main() {
       final benchPress = Exercise(guid: 'ex-bench-101', name: 'Bench Press', bodyPart: 'Chest');
       final squat = Exercise(guid: 'ex-squat-102', name: 'Barbell Squat', bodyPart: 'Legs');
 
-      context.exercises.addAll([benchPress, squat]);
+      context.replaceExercises([benchPress, squat]);
 
       final today = DateTime.now();
-      context.dailyRecords.addAll([
+      context.replaceDailyRecords([
         DailyRecord(
           id: 'rec-1',
           workoutId: 'ex-bench-101',
@@ -70,7 +72,7 @@ void main() {
       final context = WorkoutDbContext();
       final yesterday = DateTime.now().subtract(const Duration(days: 1));
 
-      context.dailyRecords.add(
+      context.addDailyRecord(
         DailyRecord(
           id: 'rec-old',
           workoutId: 'ex-1',
@@ -137,8 +139,8 @@ void main() {
 
       await driveService.addDailyRecordOptimistic(record);
 
-      expect(driveService.dbContext.dailyRecords.length, equals(1));
-      expect(driveService.dbContext.dailyRecords.first.id, equals('opt-1'));
+      expect(driveService.dbContext.readDailyRecords().length, equals(1));
+      expect(driveService.dbContext.readDailyRecords().first.id, equals('opt-1'));
     });
   });
 
@@ -190,6 +192,36 @@ void main() {
   });
 
   group('TodaysWorkoutLogScreen - Widget UI Tests', () {
+    testWidgets('set metrics wrap without overflowing on a narrow screen', (tester) async {
+      final exercise = Exercise(guid: 'ex-row', name: 'Upper Back Rowing', bodyPart: 'Back');
+      final record = DailyRecord(
+        id: 'record-row',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 8,
+        rir: 2.0,
+        weight: 120.0,
+      );
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([record.toMap()]),
+      });
+      tester.view.physicalSize = const Size(354, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Upper Back Rowing'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('Renders empty state when 0 records exist for today', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(

@@ -12,8 +12,8 @@ import 'package:workout_tracker/data/services/google_drive_service.dart';
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    GoogleDriveService().dbContext.exercises.clear();
-    GoogleDriveService().dbContext.dailyRecords.clear();
+    GoogleDriveService().dbContext.replaceExercises([]);
+    GoogleDriveService().dbContext.replaceDailyRecords([]);
     GoogleDriveService().syncStateNotifier.value = SyncState.synced;
   });
 
@@ -57,7 +57,7 @@ void main() {
         weight: 100.0,
       );
 
-      driveService.dbContext.dailyRecords.addAll([recBenchRecent, recBenchOld, recSquat]);
+      driveService.dbContext.replaceDailyRecords([recBenchRecent, recBenchOld, recSquat]);
 
       // Query for Bench Press in 30 days limit
       final history30d = await driveService.queryExerciseHistory('ex-bench', daysLimit: 30);
@@ -108,8 +108,8 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'exercise_cache': jsonEncode([benchPress.toMap()]),
       });
-      driveService.dbContext.exercises.add(benchPress);
-      driveService.dbContext.dailyRecords.add(record);
+      driveService.dbContext.addExercise(benchPress);
+      driveService.dbContext.addDailyRecord(record);
 
       await tester.pumpWidget(
         MaterialApp(
@@ -149,8 +149,8 @@ void main() {
       SharedPreferences.setMockInitialValues({
         'exercise_cache': jsonEncode([benchPress.toMap()]),
       });
-      driveService.dbContext.exercises.add(benchPress);
-      driveService.dbContext.dailyRecords.add(record);
+      driveService.dbContext.addExercise(benchPress);
+      driveService.dbContext.addDailyRecord(record);
 
       await tester.pumpWidget(
         MaterialApp(

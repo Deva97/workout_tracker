@@ -58,6 +58,9 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
   int _totalSessionsInPeriod = 0;
   double _trendPercentage = 0.0;
 
+  // In-memory cache for computed exercise statistics by exerciseGuid_days
+  final Map<String, _ExerciseStatsCacheEntry> _statsCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -110,15 +113,30 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
       return;
     }
 
+    final cacheKey = '${_selectedExercise!.guid}_${_selectedTimeFrame.days}';
+    final cached = _statsCache[cacheKey];
+    if (cached != null) {
+      setState(() {
+        _rawHistoryRecords = cached.rawHistoryRecords;
+        _chartPoints = cached.chartPoints;
+        _peakScore = cached.peakScore;
+        _totalSetsInPeriod = cached.totalSetsInPeriod;
+        _totalSessionsInPeriod = cached.totalSessionsInPeriod;
+        _trendPercentage = cached.trendPercentage;
+        _isLoading = false;
+      });
+      return;
+    }
+
     final history = await _driveService.queryExerciseHistory(
       _selectedExercise!.guid,
       daysLimit: _selectedTimeFrame.days,
     );
 
-    // Group records by calendar date (year, month, day)
+    // Group records by calendar date (year, month, day) without creating DateFormat objects in loop
     final Map<String, List<DailyRecord>> groupedByDate = {};
     for (final r in history) {
-      final key = DateFormat('yyyy-MM-dd').format(r.date);
+      final key = '${r.date.year}-${r.date.month.toString().padLeft(2, '0')}-${r.date.day.toString().padLeft(2, '0')}';
       groupedByDate.putIfAbsent(key, () => []).add(r);
     }
 
@@ -182,6 +200,16 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
         trend = ((last - first) / first) * 100.0;
       }
     }
+
+    final cacheEntry = _ExerciseStatsCacheEntry(
+      rawHistoryRecords: history,
+      chartPoints: points,
+      peakScore: maxScore,
+      totalSetsInPeriod: totalSets,
+      totalSessionsInPeriod: points.length,
+      trendPercentage: trend,
+    );
+    _statsCache[cacheKey] = cacheEntry;
 
     if (!mounted) return;
     setState(() {
@@ -683,4 +711,22 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
       ),
     );
   }
+}
+
+class _ExerciseStatsCacheEntry {
+  final List<DailyRecord> rawHistoryRecords;
+  final List<StrengthChartPoint> chartPoints;
+  final double peakScore;
+  final int totalSetsInPeriod;
+  final int totalSessionsInPeriod;
+  final double trendPercentage;
+
+  _ExerciseStatsCacheEntry({
+    required this.rawHistoryRecords,
+    required this.chartPoints,
+    required this.peakScore,
+    required this.totalSetsInPeriod,
+    required this.totalSessionsInPeriod,
+    required this.trendPercentage,
+  });
 }

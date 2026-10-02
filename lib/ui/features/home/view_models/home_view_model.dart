@@ -1,21 +1,22 @@
 import 'package:flutter/foundation.dart';
-import 'package:intl/intl.dart';
 import '../../../../data/repositories/workout_repository_impl.dart';
 import '../../../../data/repositories/workout_split_repository_impl.dart';
 import '../../../../domain/repositories/workout_repository.dart';
 import '../../../../domain/use_cases/get_todays_workout_use_case.dart';
 import '../../../../domain/use_cases/manage_workout_split_use_case.dart';
+import '../../weekly_activity/view_models/weekly_activity_view_model.dart';
 
 class HomeViewModel extends ChangeNotifier {
   final GetTodaysWorkoutUseCase _getTodaysWorkoutUseCase;
   final ManageWorkoutSplitUseCase _splitUseCase;
-  final WorkoutRepository _workoutRepository;
+  final WeeklyActivityViewModel _weeklyActivityViewModel;
 
   HomeViewModel({
     GetTodaysWorkoutUseCase? getTodaysWorkoutUseCase,
     ManageWorkoutSplitUseCase? splitUseCase,
     WorkoutRepository? workoutRepository,
-  })  : _workoutRepository = workoutRepository ?? WorkoutRepositoryImpl(),
+    WeeklyActivityViewModel? weeklyActivityViewModel,
+  })  : _weeklyActivityViewModel = weeklyActivityViewModel ?? WeeklyActivityViewModel(),
         _splitUseCase = splitUseCase ??
             ManageWorkoutSplitUseCase(splitRepository: WorkoutSplitRepositoryImpl()),
         _getTodaysWorkoutUseCase = getTodaysWorkoutUseCase ??
@@ -33,11 +34,9 @@ class HomeViewModel extends ChangeNotifier {
   bool _isLoading = true;
   bool get isLoading => _isLoading;
 
-  Map<String, bool> _weekActivity = {};
-  Map<String, bool> get weekActivity => _weekActivity;
+  Map<String, bool> get weekActivity => _weeklyActivityViewModel.weekActivity;
 
-  int _streakCount = 0;
-  int get streakCount => _streakCount;
+  int get streakCount => _weeklyActivityViewModel.streakCount;
 
   Future<void> loadDashboardData() async {
     _isLoading = true;
@@ -48,31 +47,19 @@ class HomeViewModel extends ChangeNotifier {
       final workoutData = await _getTodaysWorkoutUseCase.execute();
       final todaysFocus = workoutData.todaysFocus;
 
-      // Load weekly activity for streak widget
-      final records = await _workoutRepository.getDailyRecords();
-      final Map<String, bool> activity = {};
-      final now = DateTime.now();
-      final startOfWeek = now.subtract(Duration(days: (now.weekday - 1) % 7));
-
-      for (int i = 0; i < 7; i++) {
-        final dayDate = startOfWeek.add(Duration(days: i));
-        final dayName = DateFormat('E', 'en_US').format(dayDate);
-        final hasLog = records.any((r) =>
-            r.date.year == dayDate.year &&
-            r.date.month == dayDate.month &&
-            r.date.day == dayDate.day);
-        activity[dayName] = hasLog;
-      }
-
-      final activeDaysCount = activity.values.where((v) => v).length;
+      await _weeklyActivityViewModel.loadWeeklyActivity();
 
       _todaysWorkout = todaysFocus;
       _activeSplit = savedSplit;
-      _weekActivity = activity;
-      _streakCount = activeDaysCount;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _weeklyActivityViewModel.dispose();
+    super.dispose();
   }
 }

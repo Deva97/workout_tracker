@@ -30,7 +30,7 @@ class ExerciseRepositoryImpl implements ExerciseRepository {
 
   @override
   List<Exercise> getCachedExercises() {
-    return _driveService.dbContext.exercises.toList();
+    return _driveService.dbContext.readExercises();
   }
 
   @override
