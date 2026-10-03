@@ -33,6 +33,12 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
         _exercisesUseCase = exercisesUseCase ??
             ManageExercisesUseCase(exerciseRepository: ExerciseRepositoryImpl());
 
+  DateTime _selectedDate = _normalizeDate(DateTime.now());
+  DateTime get selectedDate => _selectedDate;
+
+  List<DateTime> _availableDates = [_normalizeDate(DateTime.now())];
+  List<DateTime> get availableDates => List.unmodifiable(_availableDates);
+
   List<DailyWorkoutEntry> _todaysEntries = [];
   List<DailyWorkoutEntry> get todaysEntries => _todaysEntries;
 
@@ -50,11 +56,33 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
 
   ValueListenable<SyncState> get syncStateListenable => _workoutRepository.syncStateListenable;
 
+  static DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  bool isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool get isViewingToday => isSameDay(_selectedDate, DateTime.now());
+
+  int get currentDateIndex => _availableDates.indexWhere((d) => isSameDay(d, _selectedDate));
+
+  /// True if there is an older workout record session before the currently viewed date.
+  bool get canGoPrevious {
+    final idx = currentDateIndex;
+    return idx >= 0 && idx < _availableDates.length - 1;
+  }
+
+  /// True if there is a newer workout record session after the currently viewed date.
+  bool get canGoNext {
+    final idx = currentDateIndex;
+    return idx > 0;
+  }
+
   bool isPersonalRecord(DailyWorkoutEntry entry) {
     return _prRecordIds.contains(entry.record.id);
   }
 
-  /// Returns the most recently logged set for this exercise (from today or recent cache)
+  /// Returns the most recently logged set for this exercise (from current date or recent cache)
   DailyRecord? getLastRecordedSet(String exerciseGuid) {
     final matches = _todaysEntries.where((e) => e.exercise.guid == exerciseGuid).toList();
     if (matches.isNotEmpty) {
@@ -64,10 +92,36 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
     return _lastRecordedCache[exerciseGuid];
   }
 
+  /// Synchronously returns cached entries for a given date from memory.
+  List<DailyWorkoutEntry> getEntriesForDate(DateTime date) {
+    return _getTodaysWorkoutUseCase.getCachedEntries(date);
+  }
+
+  void _rebuildAvailableDates(List<DailyRecord> records) {
+    final today = _normalizeDate(DateTime.now());
+    final set = <DateTime>{today, _selectedDate};
+    for (final r in records) {
+      set.add(_normalizeDate(r.date));
+    }
+    _availableDates = set.toList()..sort((a, b) => b.compareTo(a)); // Descending: today first, then past
+  }
+
   Future<void> loadTodaysWorkoutLog() async {
     // 1. Immediately render cached data if present for zero-latency screen load
     final cachedExercises = _exercisesUseCase.getCachedExercises();
-    final cachedEntries = _getTodaysWorkoutUseCase.getCachedEntries();
+    final cachedEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
+    final cachedDailyRecords = _workoutRepository.getCachedDailyRecords();
+    _rebuildAvailableDates(cachedDailyRecords);
+
+    for (final rec in cachedDailyRecords) {
+      final existing = _lastRecordedCache[rec.workoutId];
+      if (existing == null ||
+          rec.date.isAfter(existing.date) ||
+          (rec.date.isAtSameMomentAs(existing.date) && rec.set > existing.set)) {
+        _lastRecordedCache[rec.workoutId] = rec;
+      }
+    }
+
     if (cachedExercises.isNotEmpty || cachedEntries.isNotEmpty) {
       _availableExercises = cachedExercises;
       _todaysEntries = cachedEntries;
@@ -81,7 +135,7 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
 
     // 2. Fetch fresh entries from Drive / background sync without blocking initial display
     try {
-      final workoutData = await _getTodaysWorkoutUseCase.execute();
+      final workoutData = await _getTodaysWorkoutUseCase.execute(_selectedDate);
       _availableExercises = _exercisesUseCase.getCachedExercises();
       if (_availableExercises.isEmpty) {
         _availableExercises = await _exercisesUseCase.getExercises();
@@ -89,9 +143,15 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
       _todaysEntries = workoutData.entries;
       _recalculatePersonalRecords();
 
-      // Warm up historical cache for previous set lookups
+      // Warm up historical cache & available dates
       final weeklyRecords = await _workoutRepository.getWeeklyDailyRecords();
-      for (final rec in weeklyRecords) {
+      final allRecords = <DailyRecord>{
+        ..._workoutRepository.getCachedDailyRecords(),
+        ...weeklyRecords,
+      }.toList();
+      _rebuildAvailableDates(allRecords);
+
+      for (final rec in allRecords) {
         final existing = _lastRecordedCache[rec.workoutId];
         if (existing == null ||
             rec.date.isAfter(existing.date) ||
@@ -107,10 +167,71 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
     }
   }
 
+  /// Switch to a new date, loading cached entries instantly, then refreshing in background.
+  Future<void> changeDate(DateTime newDate) async {
+    final normalized = _normalizeDate(newDate);
+    if (isSameDay(_selectedDate, normalized) && !_isLoading) return;
+
+    _selectedDate = normalized;
+    if (!_availableDates.any((d) => isSameDay(d, _selectedDate))) {
+      _availableDates.add(_selectedDate);
+      _availableDates.sort((a, b) => b.compareTo(a));
+    }
+
+    // Instant local render
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
+    _recalculatePersonalRecords();
+    notifyListeners();
+
+    // Background fresh fetch for the date
+    try {
+      final workoutData = await _getTodaysWorkoutUseCase.execute(_selectedDate);
+      _todaysEntries = workoutData.entries;
+      _recalculatePersonalRecords();
+
+      final weeklyRecords = await _workoutRepository.getWeeklyDailyRecords();
+      final allRecords = <DailyRecord>{
+        ..._workoutRepository.getCachedDailyRecords(),
+        ...weeklyRecords,
+      }.toList();
+      _rebuildAvailableDates(allRecords);
+    } catch (_) {
+      // Ignore background errors
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Navigate to previous (older) workout record date. Returns false if at oldest boundary.
+  Future<bool> goToPreviousRecord() async {
+    if (!canGoPrevious) return false;
+    final targetIndex = currentDateIndex + 1;
+    await changeDate(_availableDates[targetIndex]);
+    return true;
+  }
+
+  /// Navigate to next (newer) workout record date. Returns false if at newest boundary (Today).
+  Future<bool> goToNextRecord() async {
+    if (!canGoNext) return false;
+    final targetIndex = currentDateIndex - 1;
+    await changeDate(_availableDates[targetIndex]);
+    return true;
+  }
+
+  /// Quickly jump back to Today.
+  Future<void> goToToday() async {
+    await changeDate(DateTime.now());
+  }
+
   Future<void> saveSet(DailyRecord record) async {
     await _manageSetUseCase.addSet(record);
     _lastRecordedCache[record.workoutId] = record;
-    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries();
+    final recDate = _normalizeDate(record.date);
+    if (!_availableDates.any((d) => isSameDay(d, recDate))) {
+      _availableDates.add(recDate);
+      _availableDates.sort((a, b) => b.compareTo(a));
+    }
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
     _recalculatePersonalRecords();
     notifyListeners();
   }
@@ -118,14 +239,14 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
   Future<void> editSet(DailyRecord record) async {
     await _manageSetUseCase.editSet(record);
     _lastRecordedCache[record.workoutId] = record;
-    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries();
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
     _recalculatePersonalRecords();
     notifyListeners();
   }
 
   Future<void> deleteSet(DailyWorkoutEntry entry) async {
     await _manageSetUseCase.deleteSet(entry.record.id);
-    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries();
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
     _recalculatePersonalRecords();
     notifyListeners();
   }
@@ -133,7 +254,7 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
   Future<void> restoreSet(DailyRecord record) async {
     await _manageSetUseCase.addSet(record);
     _lastRecordedCache[record.workoutId] = record;
-    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries();
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
     _recalculatePersonalRecords();
     notifyListeners();
   }

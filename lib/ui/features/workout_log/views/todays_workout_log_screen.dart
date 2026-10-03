@@ -10,6 +10,8 @@ import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
 import '../view_models/todays_workout_log_view_model.dart';
 import 'widgets/add_workout_set_modal.dart';
+import 'widgets/boundary_shake_wrapper.dart';
+import 'widgets/date_navigator_bar.dart';
 
 class TodaysWorkoutLogScreen extends StatefulWidget {
   final TodaysWorkoutLogViewModel? viewModel;
@@ -25,7 +27,11 @@ class TodaysWorkoutLogScreen extends StatefulWidget {
 
 class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
   late final TodaysWorkoutLogViewModel _viewModel;
+  late final PageController _pageController;
+  final BoundaryShakeController _boundaryShakeController = BoundaryShakeController();
+
   bool _createdOwnViewModel = false;
+  DateTime? _lastBoundaryVibrationTime;
 
   @override
   void initState() {
@@ -36,6 +42,11 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
       _viewModel = TodaysWorkoutLogViewModel();
       _createdOwnViewModel = true;
     }
+
+    _pageController = PageController(
+      initialPage: _viewModel.currentDateIndex >= 0 ? _viewModel.currentDateIndex : 0,
+    );
+
     _viewModel.addListener(_onViewModelChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _viewModel.loadTodaysWorkoutLog();
@@ -43,16 +54,35 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
   }
 
   void _onViewModelChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+
+    if (_pageController.hasClients) {
+      final currentPage = _pageController.page?.round() ?? 0;
+      final targetPage = _viewModel.currentDateIndex;
+      if (targetPage >= 0 && currentPage != targetPage) {
+        _pageController.jumpToPage(targetPage);
+      }
+    }
   }
 
   @override
   void dispose() {
     _viewModel.removeListener(_onViewModelChanged);
+    _pageController.dispose();
     if (_createdOwnViewModel) {
       _viewModel.dispose();
     }
     super.dispose();
+  }
+
+  void _triggerBoundaryFeedback() {
+    final now = DateTime.now();
+    if (_lastBoundaryVibrationTime == null ||
+        now.difference(_lastBoundaryVibrationTime!) > const Duration(milliseconds: 350)) {
+      _lastBoundaryVibrationTime = now;
+      _boundaryShakeController.triggerBoundaryFeedback();
+    }
   }
 
   Future<void> _deleteRecord(DailyWorkoutEntry entry) async {
@@ -103,6 +133,25 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     }
   }
 
+  Future<void> _openDatePicker() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _viewModel.selectedDate.isAfter(now) ? now : _viewModel.selectedDate,
+      firstDate: DateTime(2020),
+      lastDate: now,
+      helpText: 'SELECT WORKOUT DATE',
+      confirmText: 'VIEW LOG',
+    );
+
+    if (picked != null) {
+      await _viewModel.changeDate(picked);
+      if (_pageController.hasClients) {
+        _pageController.jumpToPage(_viewModel.currentDateIndex);
+      }
+    }
+  }
+
   void _openAddSetModal([Exercise? targetExercise, DailyRecord? editRecord]) {
     int nextSetNumber = 1;
     DailyRecord? previousRecord;
@@ -135,6 +184,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
           initialSetNumber: editRecord?.set ?? nextSetNumber,
           editRecord: editRecord,
           previousRecord: previousRecord,
+          targetDate: _viewModel.selectedDate,
           getPreviousRecord: (guid) => _viewModel.getLastRecordedSet(guid),
           onSaveSet: (record, keepOpen) async {
             try {
@@ -161,9 +211,9 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     );
   }
 
-  Map<String, List<DailyWorkoutEntry>> _groupEntriesByExercise() {
+  Map<String, List<DailyWorkoutEntry>> _groupEntries(List<DailyWorkoutEntry> entries) {
     final Map<String, List<DailyWorkoutEntry>> grouped = {};
-    for (final entry in _viewModel.todaysEntries) {
+    for (final entry in entries) {
       final key = entry.exercise.guid;
       grouped.putIfAbsent(key, () => []).add(entry);
     }
@@ -174,7 +224,6 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final todayFormatted = DateFormat('EEEE, MMM d').format(DateTime.now());
-    final groupedEntries = _groupEntriesByExercise();
 
     return Scaffold(
       appBar: AppBar(
@@ -183,7 +232,9 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
           children: [
             const Text('Today\'s Workout Log', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18)),
             Text(
-              todayFormatted.toUpperCase(),
+              _viewModel.isViewingToday
+                  ? todayFormatted.toUpperCase()
+                  : DateFormat('EEEE, MMM d').format(_viewModel.selectedDate).toUpperCase(),
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -218,239 +269,305 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
         icon: const Icon(Icons.add_rounded, size: 20),
         label: const Text('Add Set', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
       ),
-      body: RefreshIndicator(
-        onRefresh: _viewModel.loadTodaysWorkoutLog,
-        child: _viewModel.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _viewModel.todaysEntries.isEmpty
-                        ? SingleChildScrollView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            child: Container(
-                              height: MediaQuery.of(context).size.height * 0.65,
-                              padding: const EdgeInsets.all(16),
-                              child: EmptyStateWidget(
-                                icon: Icons.fitness_center_rounded,
-                                title: 'No Workout Logged Today',
-                                description:
-                                    'Track your workout sets, weights, reps, and RIR for today\'s session.',
-                                buttonText: 'Add First Workout Set',
-                                onButtonPressed: () => _openAddSetModal(),
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                            itemCount: groupedEntries.keys.length,
-                            separatorBuilder: (_, _) => const SizedBox(height: 16),
-                            itemBuilder: (context, index) {
-                              final exerciseGuid = groupedEntries.keys.elementAt(index);
-                              final entries = groupedEntries[exerciseGuid]!;
-                              final exercise = entries.first.exercise;
+      body: BoundaryShakeWrapper(
+        controller: _boundaryShakeController,
+        child: Column(
+          children: [
+            // Top Date Navigation Bar (< Date >)
+            DateNavigatorBar(
+              selectedDate: _viewModel.selectedDate,
+              isViewingToday: _viewModel.isViewingToday,
+              canGoPrevious: _viewModel.canGoPrevious,
+              canGoNext: _viewModel.canGoNext,
+              onPreviousPressed: () {
+                if (_viewModel.canGoPrevious) {
+                  _pageController.animateToPage(
+                    _viewModel.currentDateIndex + 1,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeInOut,
+                  );
+                } else {
+                  _triggerBoundaryFeedback();
+                }
+              },
+              onNextPressed: () {
+                if (_viewModel.canGoNext) {
+                  _pageController.animateToPage(
+                    _viewModel.currentDateIndex - 1,
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeInOut,
+                  );
+                } else {
+                  _triggerBoundaryFeedback();
+                }
+              },
+              onDatePickerPressed: _openDatePicker,
+              onTodayPressed: () {
+                _pageController.animateToPage(
+                  0,
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeInOut,
+                );
+              },
+              onBoundaryAttempt: _triggerBoundaryFeedback,
+            ),
 
-                              return Container(
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context).cardColor,
-                                  borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(
-                                    color: isDark ? AppColors.cardBorderDark : AppColors.cardBorderLight,
+            // Horizontal PageView for scrolling between dates
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => _viewModel.changeDate(_viewModel.selectedDate),
+                child: _viewModel.isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : NotificationListener<ScrollNotification>(
+                        onNotification: (notification) {
+                          if (notification is OverscrollNotification) {
+                            if (notification.overscroll < 0 && !_viewModel.canGoNext) {
+                              _triggerBoundaryFeedback();
+                            } else if (notification.overscroll > 0 && !_viewModel.canGoPrevious) {
+                              _triggerBoundaryFeedback();
+                            }
+                          }
+                          return false;
+                        },
+                        child: PageView.builder(
+                          controller: _pageController,
+                          itemCount: _viewModel.availableDates.length,
+                          onPageChanged: (index) {
+                            if (index >= 0 && index < _viewModel.availableDates.length) {
+                              final newDate = _viewModel.availableDates[index];
+                              _viewModel.changeDate(newDate);
+                            }
+                          },
+                          itemBuilder: (context, index) {
+                            final pageDate = _viewModel.availableDates[index];
+                            final isPageToday = _viewModel.isSameDay(pageDate, DateTime.now());
+                            final entries = _viewModel.isSameDay(pageDate, _viewModel.selectedDate)
+                                ? _viewModel.todaysEntries
+                                : _viewModel.getEntriesForDate(pageDate);
+
+                            if (entries.isEmpty) {
+                              final dateLabel = isPageToday
+                                  ? 'Today'
+                                  : DateFormat('EEEE, MMM d').format(pageDate);
+                              return SingleChildScrollView(
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                child: Container(
+                                  height: MediaQuery.of(context).size.height * 0.65,
+                                  padding: const EdgeInsets.all(16),
+                                  child: EmptyStateWidget(
+                                    icon: Icons.fitness_center_rounded,
+                                    title: isPageToday ? 'No Workout Logged Today' : 'No Workout on $dateLabel',
+                                    description: isPageToday
+                                        ? 'Track your workout sets, weights, reps, and RIR for today\'s session.'
+                                        : 'No sets were recorded for this day. You can add sets retrospectively if needed.',
+                                    buttonText: isPageToday ? 'Add First Workout Set' : 'Add Workout Set',
+                                    onButtonPressed: () => _openAddSetModal(),
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  children: [
-                                    // Exercise Header Card
-                                    ModularCard(
-                                      title: exercise.name,
-                                      subtitle: '${entries.length} ${entries.length == 1 ? 'set' : 'sets'} completed',
-                                      icon: Icons.fitness_center_rounded,
-                                      iconColor: AppColors.primary,
-                                      badge: exercise.bodyPart.isNotEmpty
-                                          ? StatusBadge.tag(
-                                              label: exercise.bodyPart.toUpperCase(),
-                                              color: AppColors.getMuscleColor(exercise.bodyPart),
-                                            )
-                                          : null,
-                                      trailing: IconButton(
-                                        icon: const Icon(Icons.add_circle_outline_rounded, color: AppColors.primary, size: 22),
-                                        tooltip: 'Add set for ${exercise.name}',
-                                        onPressed: () => _openAddSetModal(exercise),
-                                      ),
-                                      onTap: () => _openAddSetModal(exercise),
-                                    ),
-
-                                    // Tabular Set Rows
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-                                      child: Column(
-                                        children: [
-                                          const Divider(height: 6),
-                                          const SizedBox(height: 4),
-
-                                          ...entries.map((entry) {
-                                            final isPr = _viewModel.isPersonalRecord(entry);
-
-                                            return Dismissible(
-                                              key: ValueKey(entry.record.id),
-                                              direction: DismissDirection.endToStart,
-                                              background: Container(
-                                                alignment: Alignment.centerRight,
-                                                padding: const EdgeInsets.only(right: 16),
-                                                margin: const EdgeInsets.symmetric(vertical: 3),
-                                                decoration: BoxDecoration(
-                                                  color: AppColors.error,
-                                                  borderRadius: BorderRadius.circular(10),
-                                                ),
-                                                child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-                                              ),
-                                              onDismissed: (_) => _deleteRecord(entry),
-                                              child: Container(
-                                                margin: const EdgeInsets.symmetric(vertical: 3),
-                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                decoration: BoxDecoration(
-                                                  color: isDark
-                                                      ? AppColors.surfaceDarkElevated
-                                                      : const Color(0xFFF8FAFC),
-                                                  borderRadius: BorderRadius.circular(10),
-                                                  border: Border.all(
-                                                    color: isDark
-                                                        ? AppColors.cardBorderDark
-                                                        : const Color(0xFFEDF2F7),
-                                                  ),
-                                                ),
-                                                child: Row(
-                                                  children: [
-                                                    // Set Number Badge
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                      decoration: BoxDecoration(
-                                                        color: AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.1),
-                                                        borderRadius: BorderRadius.circular(6),
-                                                      ),
-                                                      child: Text(
-                                                        'SET ${entry.record.set}',
-                                                        style: const TextStyle(
-                                                          fontWeight: FontWeight.w700,
-                                                          fontSize: 11,
-                                                          color: AppColors.primary,
-                                                          letterSpacing: 0.3,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    if (isPr) ...[
-                                                      const SizedBox(width: 6),
-                                                      Container(
-                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                                        decoration: BoxDecoration(
-                                                          color: const Color(0xFFF59E0B).withValues(alpha: isDark ? 0.2 : 0.12),
-                                                          borderRadius: BorderRadius.circular(6),
-                                                          border: Border.all(
-                                                            color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                                                          ),
-                                                        ),
-                                                        child: const Text(
-                                                          'PR 🏆',
-                                                          style: TextStyle(
-                                                            fontWeight: FontWeight.w800,
-                                                            fontSize: 10,
-                                                            color: Color(0xFFF59E0B),
-                                                            letterSpacing: 0.2,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                    const SizedBox(width: 12),
-
-                                                    // Metrics: Weight & Reps & RIR
-                                                    Expanded(
-                                                      child: Text.rich(
-                                                        TextSpan(
-                                                          children: [
-                                                            if (entry.record.weight > 0) ...[
-                                                              TextSpan(
-                                                                text: '${entry.record.weight} kg',
-                                                                style: TextStyle(
-                                                                  fontWeight: FontWeight.w700,
-                                                                  fontSize: 14,
-                                                                  color: isDark ? AppColors.textLight : AppColors.textPrimary,
-                                                                ),
-                                                              ),
-                                                              TextSpan(
-                                                                text: '  •  ',
-                                                                style: TextStyle(
-                                                                  color: isDark ? Colors.white30 : Colors.grey.shade400,
-                                                                ),
-                                                              ),
-                                                            ],
-                                                            TextSpan(
-                                                              text: '${entry.record.reps} reps',
-                                                              style: TextStyle(
-                                                                fontWeight: FontWeight.w600,
-                                                                fontSize: 13,
-                                                                color: isDark ? AppColors.textLight : AppColors.textPrimary,
-                                                              ),
-                                                            ),
-                                                            TextSpan(
-                                                              text: '  •  ',
-                                                              style: TextStyle(
-                                                                color: isDark ? Colors.white30 : Colors.grey.shade400,
-                                                              ),
-                                                            ),
-                                                            TextSpan(
-                                                              text: 'RIR ${entry.record.rir}',
-                                                              style: TextStyle(
-                                                                fontWeight: FontWeight.w500,
-                                                                fontSize: 12,
-                                                                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ),
-
-                                                    // Actions: Edit & Delete
-                                                    Row(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        IconButton(
-                                                          icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
-                                                          visualDensity: VisualDensity.compact,
-                                                          padding: const EdgeInsets.all(6),
-                                                          constraints: const BoxConstraints(),
-                                                          tooltip: 'Edit set',
-                                                          onPressed: () => _openAddSetModal(entry.exercise, entry.record),
-                                                        ),
-                                                        const SizedBox(width: 8),
-                                                        IconButton(
-                                                          icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
-                                                          visualDensity: VisualDensity.compact,
-                                                          padding: const EdgeInsets.all(6),
-                                                          constraints: const BoxConstraints(),
-                                                          tooltip: 'Delete set',
-                                                          onPressed: () => _deleteRecord(entry),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            );
-                                          }),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
                                 ),
                               );
-                            },
-                          ),
+                            }
+
+                            return _buildGroupedEntriesList(entries, isDark);
+                          },
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildGroupedEntriesList(List<DailyWorkoutEntry> entries, bool isDark) {
+    final groupedEntries = _groupEntries(entries);
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
+      itemCount: groupedEntries.keys.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      itemBuilder: (context, index) {
+        final exerciseGuid = groupedEntries.keys.elementAt(index);
+        final exerciseEntries = groupedEntries[exerciseGuid]!;
+        final exercise = exerciseEntries.first.exercise;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? AppColors.cardBorderDark : AppColors.cardBorderLight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              // Exercise Header Card
+              ModularCard(
+                title: exercise.name,
+                subtitle: '${exerciseEntries.length} ${exerciseEntries.length == 1 ? 'set' : 'sets'} completed',
+                icon: Icons.fitness_center_rounded,
+                iconColor: AppColors.primary,
+                badge: exercise.bodyPart.isNotEmpty
+                    ? StatusBadge.tag(
+                        label: exercise.bodyPart.toUpperCase(),
+                        color: AppColors.getMuscleColor(exercise.bodyPart),
+                      )
+                    : null,
+                trailing: IconButton(
+                  icon: const Icon(Icons.add_circle_outline_rounded, color: AppColors.primary, size: 22),
+                  tooltip: 'Add another set for this exercise',
+                  onPressed: () => _openAddSetModal(exercise),
+                ),
+                onTap: () => _openAddSetModal(exercise),
+              ),
+
+              // Sets Details Table Container
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: Column(
+                  children: exerciseEntries.map((entry) {
+                    final isPr = _viewModel.isPersonalRecord(entry);
+                    return Container(
+                      margin: const EdgeInsets.symmetric(vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppColors.surfaceDarkElevated : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isDark ? AppColors.cardBorderDark : const Color(0xFFEDF2F7),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Set Number Badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'SET ${entry.record.set}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                                color: AppColors.primary,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                          if (isPr) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF59E0B).withValues(alpha: isDark ? 0.2 : 0.12),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: const Text(
+                                'PR 🏆',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 10,
+                                  color: Color(0xFFF59E0B),
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(width: 12),
+
+                          // Metrics: Weight & Reps & RIR
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  if (entry.record.weight > 0) ...[
+                                    TextSpan(
+                                      text: '${entry.record.weight} kg',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 14,
+                                        color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    TextSpan(
+                                      text: '  •  ',
+                                      style: TextStyle(
+                                        color: isDark ? Colors.white30 : Colors.grey.shade400,
+                                      ),
+                                    ),
+                                  ],
+                                  TextSpan(
+                                    text: '${entry.record.reps} reps',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: '  •  ',
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white30 : Colors.grey.shade400,
+                                    ),
+                                  ),
+                                  TextSpan(
+                                    text: 'RIR ${entry.record.rir}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 12,
+                                      color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Actions: Edit & Delete
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Edit set',
+                                onPressed: () => _openAddSetModal(entry.exercise, entry.record),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
+                                visualDensity: VisualDensity.compact,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
+                                tooltip: 'Delete set',
+                                onPressed: () => _deleteRecord(entry),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -471,7 +588,7 @@ class CompactSyncButton extends StatefulWidget {
 }
 
 class _CompactSyncButtonState extends State<CompactSyncButton> with SingleTickerProviderStateMixin {
-  late AnimationController _rotationController;
+  late final AnimationController _rotationController;
 
   @override
   void initState() {
@@ -486,7 +603,7 @@ class _CompactSyncButtonState extends State<CompactSyncButton> with SingleTicker
   }
 
   @override
-  void didUpdateWidget(CompactSyncButton oldWidget) {
+  void didUpdateWidget(covariant CompactSyncButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.syncState == SyncState.syncing && !_rotationController.isAnimating) {
       _rotationController.repeat();
@@ -504,61 +621,38 @@ class _CompactSyncButtonState extends State<CompactSyncButton> with SingleTicker
 
   @override
   Widget build(BuildContext context) {
-    Color buttonColor;
-    Color textColor;
-    String statusText;
-
-    switch (widget.syncState) {
-      case SyncState.synced:
-        buttonColor = AppColors.success.withValues(alpha: 0.12);
-        textColor = AppColors.success;
-        statusText = 'Synced';
-      case SyncState.syncing:
-        buttonColor = AppColors.primary.withValues(alpha: 0.12);
-        textColor = AppColors.primary;
-        statusText = 'Syncing';
-      case SyncState.error:
-        buttonColor = AppColors.error.withValues(alpha: 0.12);
-        textColor = AppColors.error;
-        statusText = 'Sync';
-    }
+    final (label, color, icon) = switch (widget.syncState) {
+      SyncState.synced => ('Synced', AppColors.success, Icons.cloud_done_rounded),
+      SyncState.syncing => ('Syncing...', AppColors.primary, Icons.sync_rounded),
+      SyncState.error => ('Sync', AppColors.warning, Icons.cloud_upload_rounded),
+    };
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: widget.onPressed,
+        onTap: widget.syncState == SyncState.syncing ? null : widget.onPressed,
         borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: buttonColor,
+            color: color.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: textColor.withValues(alpha: 0.3), width: 1),
+            border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AnimatedBuilder(
-                animation: _rotationController,
-                builder: (context, child) {
-                  return Transform.rotate(
-                    angle: _rotationController.value * 2.0 * 3.141592653589793,
-                    child: Icon(
-                      Icons.sync_rounded,
-                      size: 14,
-                      color: textColor,
-                    ),
-                  );
-                },
+              RotationTransition(
+                turns: _rotationController,
+                child: Icon(icon, size: 14, color: color),
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 5),
               Text(
-                statusText,
+                label,
                 style: TextStyle(
-                  color: textColor,
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
+                  color: color,
                 ),
               ),
             ],

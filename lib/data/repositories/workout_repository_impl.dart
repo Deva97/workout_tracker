@@ -61,6 +61,11 @@ class WorkoutRepositoryImpl implements WorkoutRepository {
   }
 
   @override
+  List<DailyRecord> getCachedDailyRecords() {
+    return _driveService.dbContext.readDailyRecords();
+  }
+
+  @override
   Future<SyncState> manualSyncToExcel() {
     return _driveService.manualSyncToExcel();
   }

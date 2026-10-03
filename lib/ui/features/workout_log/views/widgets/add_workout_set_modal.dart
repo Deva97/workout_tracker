@@ -22,8 +22,11 @@ class AddWorkoutSetModal extends StatefulWidget {
     this.editRecord,
     this.previousRecord,
     this.getPreviousRecord,
+    this.targetDate,
     super.key,
   });
+
+  final DateTime? targetDate;
 
   @override
   State<AddWorkoutSetModal> createState() => _AddWorkoutSetModalState();
@@ -96,7 +99,7 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
       id: widget.editRecord?.id ?? const Uuid().v4(),
       workoutId: _selectedExercise!.guid,
       workoutName: _selectedExercise!.name,
-      date: widget.editRecord?.date ?? DateTime.now(),
+      date: widget.editRecord?.date ?? widget.targetDate ?? DateTime.now(),
       set: setNumber,
       reps: reps,
       rir: rir,

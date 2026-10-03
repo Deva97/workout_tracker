@@ -371,7 +371,11 @@ class GoogleDriveService {
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(_cacheKey);
 
-    if (cached == null) return [];
+    if (cached == null) {
+      final inMemory = dbContext.readExercises();
+      if (inMemory.isNotEmpty) return inMemory;
+      return [];
+    }
 
     try {
       final jsonList = jsonDecode(cached) as List<dynamic>;
@@ -493,19 +497,23 @@ class GoogleDriveService {
         final tempContext = WorkoutDbContext();
         tempContext.loadDailyRecordFromBytes(existingBytes);
         final existingRecords = tempContext.readDailyRecords();
-
-        // Keep all historical (non-today) records from Drive
+        // Keep historical records from Drive that were not modified locally
         final now = DateTime.now();
-        final historicalRecords = existingRecords.where((r) =>
-            r.date.year != now.year ||
-            r.date.month != now.month ||
-            r.date.day != now.day).toList();
+        final modifiedDateKeys = todayRecords
+            .map((r) => '${r.date.year}-${r.date.month}-${r.date.day}')
+            .toSet()
+          ..add('${now.year}-${now.month}-${now.day}');
 
-        // Merge: historical from Drive + today's from local
-        mergedRecords = [...historicalRecords, ...todayRecords]
+        final unmodifiedHistoricalRecords = existingRecords.where((r) {
+          final key = '${r.date.year}-${r.date.month}-${r.date.day}';
+          return !modifiedDateKeys.contains(key);
+        }).toList();
+
+        // Merge: unmodified historical from Drive + local records
+        mergedRecords = [...unmodifiedHistoricalRecords, ...todayRecords]
           ..sort((a, b) => a.date.compareTo(b.date));
       } catch (e) {
-        // If download fails, just upload today's records (first-time or corrupted file)
+        // If download fails, just upload local records (first-time or corrupted file)
         debugPrint('Merge-sync: could not download existing records, uploading today only: $e');
         mergedRecords = todayRecords;
       }
@@ -536,7 +544,13 @@ class GoogleDriveService {
     final prefs = await SharedPreferences.getInstance();
     final cached = prefs.getString(_dailyRecordCacheKey);
 
-    if (cached == null) return [];
+    if (cached == null) {
+      final inMemory = dbContext.readDailyRecords();
+      if (inMemory.isNotEmpty) {
+        return _filterTodayOnly(inMemory);
+      }
+      return [];
+    }
 
     try {
       final jsonList = jsonDecode(cached) as List<dynamic>;
@@ -614,6 +628,12 @@ class GoogleDriveService {
 
     for (final record in readRecords(prefs.getString(_dailyRecordCacheKey))) {
       if (isInWeek(record) && dayOf(record) == today) {
+        recordsById[record.id] = record;
+      }
+    }
+
+    for (final record in dbContext.readDailyRecords()) {
+      if (isInWeek(record)) {
         recordsById[record.id] = record;
       }
     }
@@ -746,14 +766,22 @@ class GoogleDriveService {
     await deleteDailyRecordOptimistic(id);
   }
 
-  /// Query today's workout entries resolved with associated Exercise entity.
+  /// Query workout entries for a date (default: today) resolved with associated Exercise entity.
   /// Triggers fresh Excel download from Google Drive when signed in.
   Future<List<DailyWorkoutEntry>> getTodaysWorkoutEntries([DateTime? date]) async {
     await getExercises();
+    final targetDate = date ?? DateTime.now();
+    final now = DateTime.now();
+    final isToday = targetDate.year == now.year &&
+        targetDate.month == now.month &&
+        targetDate.day == now.day;
+
     if (_driveApi != null) {
       await syncDailyRecordsFromDrive();
-    } else {
+    } else if (isToday) {
       await getDailyRecords();
+    } else {
+      await getWeeklyDailyRecords(targetDate);
     }
     return dbContext.getTodaysWorkoutEntries(date);
   }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_tracker/data/context/workout_db_context.dart';
@@ -9,6 +10,8 @@ import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/domain/models/daily_workout_entry.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/add_workout_set_modal.dart';
+import 'package:workout_tracker/ui/features/workout_log/views/widgets/boundary_shake_wrapper.dart';
+import 'package:workout_tracker/ui/features/workout_log/views/widgets/date_navigator_bar.dart';
 import 'package:workout_tracker/ui/features/workout_log/view_models/todays_workout_log_view_model.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 
@@ -497,4 +500,465 @@ void main() {
       expect(find.widgetWithText(TextFormField, '6'), findsOneWidget);
     });
   });
+
+  group('TodaysWorkoutLogViewModel - Date Navigation Unit Tests', () {
+    test('initializes with today as selectedDate and properly calculates canGoPrevious / canGoNext when alone', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+
+      expect(viewModel.isViewingToday, isTrue);
+      expect(viewModel.availableDates.length, equals(1));
+      expect(viewModel.canGoPrevious, isFalse);
+      expect(viewModel.canGoNext, isFalse);
+
+      // Boundaries return false
+      expect(await viewModel.goToPreviousRecord(), isFalse);
+      expect(await viewModel.goToNextRecord(), isFalse);
+    });
+
+    test('discovers historical dates from dbContext and navigates back and forth', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final now = DateTime.now();
+      final oneDayAgo = now.subtract(const Duration(days: 1));
+      final threeDaysAgo = now.subtract(const Duration(days: 3));
+
+      final recToday = DailyRecord(
+        id: 'r-today',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now,
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      final rec1DayAgo = DailyRecord(
+        id: 'r-1day',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: oneDayAgo,
+        set: 1,
+        reps: 8,
+        rir: 1.0,
+        weight: 65.0,
+      );
+      final rec3DaysAgo = DailyRecord(
+        id: 'r-3days',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: threeDaysAgo,
+        set: 1,
+        reps: 6,
+        rir: 0.0,
+        weight: 70.0,
+      );
+
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([recToday, rec1DayAgo, rec3DaysAgo]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+
+      expect(viewModel.availableDates.length, equals(3));
+      expect(viewModel.isViewingToday, isTrue);
+      expect(viewModel.canGoPrevious, isTrue);
+      expect(viewModel.canGoNext, isFalse);
+      expect(viewModel.todaysEntries.length, equals(1));
+      expect(viewModel.todaysEntries.first.record.id, equals('r-today'));
+
+      // Navigate to previous (1 day ago)
+      final movedTo1DayAgo = await viewModel.goToPreviousRecord();
+      expect(movedTo1DayAgo, isTrue);
+      expect(viewModel.isViewingToday, isFalse);
+      expect(viewModel.canGoPrevious, isTrue);
+      expect(viewModel.canGoNext, isTrue);
+      expect(viewModel.todaysEntries.length, equals(1));
+      expect(viewModel.todaysEntries.first.record.id, equals('r-1day'));
+
+      // Navigate to previous (3 days ago)
+      final movedTo3DaysAgo = await viewModel.goToPreviousRecord();
+      expect(movedTo3DaysAgo, isTrue);
+      expect(viewModel.isViewingToday, isFalse);
+      expect(viewModel.canGoPrevious, isFalse);
+      expect(viewModel.canGoNext, isTrue);
+      expect(viewModel.todaysEntries.length, equals(1));
+      expect(viewModel.todaysEntries.first.record.id, equals('r-3days'));
+
+      // Attempt to go previous past oldest boundary
+      final atBoundary = await viewModel.goToPreviousRecord();
+      expect(atBoundary, isFalse);
+      expect(viewModel.todaysEntries.first.record.id, equals('r-3days'));
+
+      // Navigate next (back to 1 day ago)
+      final movedNext = await viewModel.goToNextRecord();
+      expect(movedNext, isTrue);
+      expect(viewModel.todaysEntries.first.record.id, equals('r-1day'));
+
+      // Jump back to Today
+      await viewModel.goToToday();
+      expect(viewModel.isViewingToday, isTrue);
+      expect(viewModel.canGoNext, isFalse);
+      expect(viewModel.todaysEntries.first.record.id, equals('r-today'));
+    });
+
+    test('changeDate directly navigates to a custom date and adds it to availableDates', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+
+      final targetDate = DateTime(2025, 1, 15);
+      await viewModel.changeDate(targetDate);
+
+      expect(viewModel.selectedDate.year, equals(2025));
+      expect(viewModel.selectedDate.month, equals(1));
+      expect(viewModel.selectedDate.day, equals(15));
+      expect(viewModel.isViewingToday, isFalse);
+      expect(viewModel.availableDates.any((d) => d.year == 2025 && d.month == 1 && d.day == 15), isTrue);
+    });
+  });
+
+  group('BoundaryShakeWrapper - Widget & Vibration Tests', () {
+    testWidgets('renders child properly and BoundaryShakeController triggers animation and HapticFeedback', (tester) async {
+      final methodCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          methodCalls.add(methodCall);
+          return null;
+        },
+      );
+
+      final controller = BoundaryShakeController();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BoundaryShakeWrapper(
+              controller: controller,
+              child: const Text('Shake Target Widget'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shake Target Widget'), findsOneWidget);
+
+      // Trigger boundary feedback
+      controller.triggerBoundaryFeedback();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 150));
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+
+      // Check haptic feedback was invoked
+      final hasHeavyImpact = methodCalls.any((call) =>
+          call.method == 'HapticFeedback.vibrate' &&
+          call.arguments == 'HapticFeedbackType.heavyImpact');
+      expect(hasHeavyImpact, isTrue);
+
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+  });
+
+  group('DateNavigatorBar - Widget Navigation Tests', () {
+    testWidgets('renders date label formatted as Today when isViewingToday is true', (tester) async {
+      final today = DateTime.now();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: today,
+              isViewingToday: true,
+              canGoPrevious: true,
+              canGoNext: false,
+              onPreviousPressed: () {},
+              onNextPressed: () {},
+              onDatePickerPressed: () {},
+              onTodayPressed: () {},
+              onBoundaryAttempt: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Today, '), findsOneWidget);
+      expect(find.byKey(const Key('jump_to_today_button')), findsNothing);
+    });
+
+    testWidgets('renders date label for past date and displays jump to today button', (tester) async {
+      final pastDate = DateTime(2025, 5, 20);
+      var todayTapped = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: pastDate,
+              isViewingToday: false,
+              canGoPrevious: true,
+              canGoNext: true,
+              onPreviousPressed: () {},
+              onNextPressed: () {},
+              onDatePickerPressed: () {},
+              onTodayPressed: () {
+                todayTapped = true;
+              },
+              onBoundaryAttempt: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('jump_to_today_button')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('jump_to_today_button')));
+      await tester.pumpAndSettle();
+
+      expect(todayTapped, isTrue);
+    });
+
+    testWidgets('triggers onPreviousPressed when canGoPrevious is true and onBoundaryAttempt when false', (tester) async {
+      var prevPressed = false;
+      var boundaryPressed = false;
+
+      // When canGoPrevious is true
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: DateTime.now(),
+              isViewingToday: true,
+              canGoPrevious: true,
+              canGoNext: false,
+              onPreviousPressed: () => prevPressed = true,
+              onNextPressed: () {},
+              onDatePickerPressed: () {},
+              onTodayPressed: () {},
+              onBoundaryAttempt: () => boundaryPressed = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('prev_date_button')));
+      await tester.pumpAndSettle();
+      expect(prevPressed, isTrue);
+      expect(boundaryPressed, isFalse);
+
+      // When canGoPrevious is false
+      prevPressed = false;
+      boundaryPressed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: DateTime.now(),
+              isViewingToday: true,
+              canGoPrevious: false,
+              canGoNext: false,
+              onPreviousPressed: () => prevPressed = true,
+              onNextPressed: () {},
+              onDatePickerPressed: () {},
+              onTodayPressed: () {},
+              onBoundaryAttempt: () => boundaryPressed = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('prev_date_button')));
+      await tester.pumpAndSettle();
+      expect(prevPressed, isFalse);
+      expect(boundaryPressed, isTrue);
+    });
+
+    testWidgets('triggers onNextPressed when canGoNext is true and onBoundaryAttempt when false', (tester) async {
+      var nextPressed = false;
+      var boundaryPressed = false;
+
+      // When canGoNext is false (on Today)
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: DateTime.now(),
+              isViewingToday: true,
+              canGoPrevious: true,
+              canGoNext: false,
+              onPreviousPressed: () {},
+              onNextPressed: () => nextPressed = true,
+              onDatePickerPressed: () {},
+              onTodayPressed: () {},
+              onBoundaryAttempt: () => boundaryPressed = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('next_date_button')));
+      await tester.pumpAndSettle();
+      expect(nextPressed, isFalse);
+      expect(boundaryPressed, isTrue);
+
+      // When canGoNext is true
+      nextPressed = false;
+      boundaryPressed = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: DateTime.now().subtract(const Duration(days: 2)),
+              isViewingToday: false,
+              canGoPrevious: true,
+              canGoNext: true,
+              onPreviousPressed: () {},
+              onNextPressed: () => nextPressed = true,
+              onDatePickerPressed: () {},
+              onTodayPressed: () {},
+              onBoundaryAttempt: () => boundaryPressed = true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('next_date_button')));
+      await tester.pumpAndSettle();
+      expect(nextPressed, isTrue);
+      expect(boundaryPressed, isFalse);
+    });
+
+    testWidgets('triggers onDatePickerPressed when date chip is tapped', (tester) async {
+      var datePickerTapped = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateNavigatorBar(
+              selectedDate: DateTime.now(),
+              isViewingToday: true,
+              canGoPrevious: true,
+              canGoNext: false,
+              onPreviousPressed: () {},
+              onNextPressed: () {},
+              onDatePickerPressed: () => datePickerTapped = true,
+              onTodayPressed: () {},
+              onBoundaryAttempt: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('date_picker_chip')));
+      await tester.pumpAndSettle();
+      expect(datePickerTapped, isTrue);
+    });
+  });
+
+  group('TodaysWorkoutLogScreen - Date Browsing & Swipe Integration Tests', () {
+    testWidgets('renders DateNavigatorBar and allows navigating to past workout date', (tester) async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final now = DateTime.now();
+      final yesterday = now.subtract(const Duration(days: 1));
+
+      final recToday = DailyRecord(
+        id: 'rec-today',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: now,
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      final recYesterday = DailyRecord(
+        id: 'rec-yest',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: yesterday,
+        set: 1,
+        reps: 8,
+        rir: 1.0,
+        weight: 75.0,
+      );
+
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([recToday, recYesterday]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // Today's record should be displayed initially
+      expect(find.byType(DateNavigatorBar), findsOneWidget);
+      expect(find.textContaining('60.0 kg'), findsOneWidget);
+      expect(find.textContaining('10 reps'), findsOneWidget);
+
+      // Tap Previous (<) button to view yesterday
+      await tester.tap(find.byKey(const Key('prev_date_button')));
+      await tester.pumpAndSettle();
+
+      // Yesterday's record should now be displayed
+      expect(find.textContaining('75.0 kg'), findsOneWidget);
+      expect(find.textContaining('8 reps'), findsOneWidget);
+      expect(find.byKey(const Key('jump_to_today_button')), findsOneWidget);
+
+      // Tap Jump to Today
+      await tester.tap(find.byKey(const Key('jump_to_today_button')).first);
+      await tester.pumpAndSettle();
+
+      // Back on Today
+      expect(find.textContaining('60.0 kg'), findsOneWidget);
+      expect(find.textContaining('10 reps'), findsOneWidget);
+    });
+
+    testWidgets('boundary attempt at today triggers heavy impact vibration', (tester) async {
+      final methodCalls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          methodCalls.add(methodCall);
+          return null;
+        },
+      );
+
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // We are on Today and have no later records. Tap Next (>)
+      await tester.tap(find.byKey(const Key('next_date_button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 350));
+      await tester.pumpAndSettle();
+
+      final hasHeavyImpact = methodCalls.any((call) =>
+          call.method == 'HapticFeedback.vibrate' &&
+          call.arguments == 'HapticFeedbackType.heavyImpact');
+      expect(hasHeavyImpact, isTrue);
+
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+  });
 }
+
