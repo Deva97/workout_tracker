@@ -10,7 +10,6 @@ import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
 import '../view_models/todays_workout_log_view_model.dart';
 import 'widgets/add_workout_set_modal.dart';
-import 'widgets/rest_timer_widget.dart';
 
 class TodaysWorkoutLogScreen extends StatefulWidget {
   final TodaysWorkoutLogViewModel? viewModel;
@@ -195,16 +194,6 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: Icon(
-              _viewModel.showRestTimer ? Icons.timer_rounded : Icons.timer_outlined,
-              color: _viewModel.showRestTimer ? AppColors.primary : (isDark ? Colors.white70 : AppColors.textSecondary),
-            ),
-            tooltip: 'Toggle Rest Timer',
-            onPressed: () {
-              _viewModel.setShowRestTimer(!_viewModel.showRestTimer);
-            },
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: Center(
@@ -233,16 +222,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
         onRefresh: _viewModel.loadTodaysWorkoutLog,
         child: _viewModel.isLoading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  if (_viewModel.showRestTimer)
-                    RestTimerWidget(
-                      onClose: () {
-                        _viewModel.setShowRestTimer(false);
-                      },
-                    ),
-                  Expanded(
-                    child: _viewModel.todaysEntries.isEmpty
+            : _viewModel.todaysEntries.isEmpty
                         ? SingleChildScrollView(
                             physics: const AlwaysScrollableScrollPhysics(),
                             child: Container(
@@ -470,9 +450,6 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                               );
                             },
                           ),
-                  ),
-                ],
-              ),
       ),
     );
   }

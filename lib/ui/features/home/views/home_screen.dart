@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
+import 'package:workout_tracker/ui/core/theme/theme_controller.dart';
 import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/section_header.dart';
+import 'package:workout_tracker/ui/core/widgets/theme_switch_button.dart';
 import 'package:workout_tracker/ui/features/exercise_info/views/exercise_info_page.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistics_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
@@ -16,7 +18,12 @@ import 'widgets/hero_workout_banner.dart';
 import 'widgets/quick_stat_card.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final ThemeController? themeController;
+
+  const HomeScreen({
+    super.key,
+    this.themeController,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -82,6 +89,10 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('Workout Tracker', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         elevation: 0,
+        actions: [
+          ThemeSwitchButton(controller: widget.themeController),
+          const SizedBox(width: 8),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _loadDashboardData,

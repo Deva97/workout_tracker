@@ -5,7 +5,6 @@ import 'package:workout_tracker/data/context/workout_db_context.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/repositories/workout_repository.dart';
 import 'package:workout_tracker/domain/use_cases/get_exercise_statistics_use_case.dart';
-import 'package:workout_tracker/ui/features/workout_log/views/widgets/rest_timer_widget.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/strength_trend_chart.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
@@ -35,66 +34,6 @@ void main() {
       expect(AppColors.cardBorderDark, isNotNull);
       expect(AppColors.disabled, isNotNull);
       expect(AppColors.shimmer, isNotNull);
-    });
-  });
-
-  group('RestTimerWidget Tests', () {
-    testWidgets('Renders rest timer with initial seconds and countdown controls', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.lightTheme,
-          home: const Scaffold(
-            body: RestTimerWidget(initialSeconds: 90),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.text('Rest Timer'), findsOneWidget);
-      expect(find.text('01:30'), findsOneWidget);
-      expect(find.text('Pause'), findsOneWidget);
-      expect(find.text('60s'), findsOneWidget);
-      expect(find.text('90s'), findsOneWidget);
-      expect(find.text('120s'), findsOneWidget);
-      expect(find.text('180s'), findsOneWidget);
-    });
-
-    testWidgets('Pause and Resume button toggles timer execution', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.lightTheme,
-          home: const Scaffold(
-            body: RestTimerWidget(initialSeconds: 60),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      // Tap Pause
-      await tester.tap(find.text('Pause'));
-      await tester.pump();
-      expect(find.text('Resume'), findsOneWidget);
-
-      // Tap Resume
-      await tester.tap(find.text('Resume'));
-      await tester.pump();
-      expect(find.text('Pause'), findsOneWidget);
-    });
-
-    testWidgets('Preset chip selection resets timer duration', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.lightTheme,
-          home: const Scaffold(
-            body: RestTimerWidget(initialSeconds: 90),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.text('120s'));
-      await tester.pump();
-      expect(find.text('02:00'), findsOneWidget);
     });
   });
 

@@ -9,6 +9,7 @@ class LocalStorageService {
   static const String keyDailyRecordFileId = 'daily_record_file_id';
   static const String keyWorkoutSchedule = 'workout_schedule';
   static const String keySplitChoice = 'split_choice';
+  static const String keyThemeMode = 'theme_mode';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
 
@@ -58,4 +59,9 @@ class LocalStorageService {
   Future<Map<String, String>> getWeeklySchedule() => getWorkoutSchedule();
 
   Future<void> setWeeklySchedule(Map<String, String> schedule) => setWorkoutSchedule(schedule);
+
+  // Theme mode specific helpers
+  Future<String?> getThemeMode() => getString(keyThemeMode);
+
+  Future<void> setThemeMode(String themeMode) => setString(keyThemeMode, themeMode);
 }

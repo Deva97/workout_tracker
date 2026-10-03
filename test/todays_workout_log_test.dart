@@ -402,7 +402,6 @@ void main() {
       // Save Set
       await viewModel.saveSet(rec1);
       expect(viewModel.todaysEntries.length, equals(1));
-      expect(viewModel.showRestTimer, isTrue);
 
       // Edit Set
       final updatedRec1 = rec1.copyWith(weight: 65.0);

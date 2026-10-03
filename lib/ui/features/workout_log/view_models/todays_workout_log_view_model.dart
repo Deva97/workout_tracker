@@ -42,9 +42,6 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
   bool _isLoading = true;
   bool get isLoading => _isLoading;
 
-  bool _showRestTimer = false;
-  bool get showRestTimer => _showRestTimer;
-
   // Set of record IDs that represent personal records (peak 1RM for that exercise)
   final Set<String> _prRecordIds = {};
 
@@ -52,11 +49,6 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
   final Map<String, DailyRecord> _lastRecordedCache = {};
 
   ValueListenable<SyncState> get syncStateListenable => _workoutRepository.syncStateListenable;
-
-  void setShowRestTimer(bool show) {
-    _showRestTimer = show;
-    notifyListeners();
-  }
 
   bool isPersonalRecord(DailyWorkoutEntry entry) {
     return _prRecordIds.contains(entry.record.id);
@@ -119,7 +111,6 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
     await _manageSetUseCase.addSet(record);
     _lastRecordedCache[record.workoutId] = record;
     _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries();
-    _showRestTimer = true;
     _recalculatePersonalRecords();
     notifyListeners();
   }
