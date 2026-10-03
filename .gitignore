@@ -47,15 +47,33 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 
-# Project Context, AI Assistant & Skills files
+# Project Context, AI Assistant & Agent files (Development only)
 PROJECT_CONTEXT.md
+PROJECT.md
 AGENTS.md
 CLAUDE.md
+TEST_INFRA.md
+TEST_READY.md
+prompt_draft.md
 *.agent.md
-.agents/
+agent.md
+*.prompt.md
 skills-lock.json
+generate_profiles.py
+
+# AI Agent & Assistant directories
+.agents/
+.agent/
+.agents-workspaces/
+project-context/
+tool/
 .gemini/
 .claude/
 .cursor/
 .copilot/
+.windsurf/
+.cline/
+.aider*
+.factory/
+.continue/
 
