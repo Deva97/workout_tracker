@@ -14,6 +14,7 @@ abstract class WorkoutRepository {
   Future<void> syncDailyRecordsFromDrive();
   Future<void> syncDailyRecordsToDrive(List<DailyRecord> todayRecords);
   List<DailyWorkoutEntry> getCachedTodaysWorkoutEntries([DateTime? date]);
+  List<DailyRecord> getCachedDailyRecords();
   Future<SyncState> manualSyncToExcel();
   ValueListenable<SyncState> get syncStateListenable;
 }

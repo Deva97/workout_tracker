@@ -12,6 +12,7 @@ import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/add_workout_set_modal.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/boundary_shake_wrapper.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/date_navigator_bar.dart';
+import 'package:workout_tracker/ui/features/workout_log/views/widgets/half_screen_page_scroll_physics.dart';
 import 'package:workout_tracker/ui/features/workout_log/view_models/todays_workout_log_view_model.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 
@@ -958,6 +959,82 @@ void main() {
       expect(hasHeavyImpact, isTrue);
 
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null);
+    });
+  });
+
+  group('HalfScreenPageScrollPhysics - Unit Tests', () {
+    test('createBallisticSimulation snaps back to current page when drag is under 50%', () {
+      const physics = HalfScreenPageScrollPhysics();
+      final position = FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 800,
+        pixels: 160,
+        viewportDimension: 400,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1.0,
+      );
+
+      final simulation = physics.createBallisticSimulation(position, 100);
+      expect(simulation, isNotNull);
+      expect(simulation is ScrollSpringSimulation, isTrue);
+      final springSim = simulation as ScrollSpringSimulation;
+      // Target should be 0.0 (snaps back to page 0)
+      expect(springSim.x(100.0).round(), equals(0));
+    });
+
+    test('createBallisticSimulation advances to next page when drag is >= 50%', () {
+      const physics = HalfScreenPageScrollPhysics();
+      final position = FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 800,
+        pixels: 220,
+        viewportDimension: 400,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1.0,
+      );
+
+      final simulation = physics.createBallisticSimulation(position, 100);
+      expect(simulation, isNotNull);
+      expect(simulation is ScrollSpringSimulation, isTrue);
+      final springSim = simulation as ScrollSpringSimulation;
+      // Target should be 400.0 (advances to page 1)
+      expect(springSim.x(100.0).round(), equals(400));
+    });
+
+    test('createBallisticSimulation snaps back to page 1 when dragging back under 50%', () {
+      const physics = HalfScreenPageScrollPhysics();
+      final position = FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 800,
+        pixels: 250,
+        viewportDimension: 400,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1.0,
+      );
+
+      final simulation = physics.createBallisticSimulation(position, -100);
+      expect(simulation, isNotNull);
+      final springSim = simulation as ScrollSpringSimulation;
+      // Target should be 400.0 (snaps back to page 1)
+      expect(springSim.x(100.0).round(), equals(400));
+    });
+
+    test('createBallisticSimulation snaps to page 0 when dragging back >= 50%', () {
+      const physics = HalfScreenPageScrollPhysics();
+      final position = FixedScrollMetrics(
+        minScrollExtent: 0,
+        maxScrollExtent: 800,
+        pixels: 180,
+        viewportDimension: 400,
+        axisDirection: AxisDirection.right,
+        devicePixelRatio: 1.0,
+      );
+
+      final simulation = physics.createBallisticSimulation(position, -100);
+      expect(simulation, isNotNull);
+      final springSim = simulation as ScrollSpringSimulation;
+      // Target should be 0.0 (advances to page 0)
+      expect(springSim.x(100.0).round(), equals(0));
     });
   });
 }

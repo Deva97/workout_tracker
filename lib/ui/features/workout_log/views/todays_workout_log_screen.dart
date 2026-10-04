@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/daily_workout_entry.dart';
@@ -12,6 +13,7 @@ import '../view_models/todays_workout_log_view_model.dart';
 import 'widgets/add_workout_set_modal.dart';
 import 'widgets/boundary_shake_wrapper.dart';
 import 'widgets/date_navigator_bar.dart';
+import 'widgets/half_screen_page_scroll_physics.dart';
 
 class TodaysWorkoutLogScreen extends StatefulWidget {
   final TodaysWorkoutLogViewModel? viewModel;
@@ -32,6 +34,8 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
   bool _createdOwnViewModel = false;
   DateTime? _lastBoundaryVibrationTime;
+  double _accumulatedHorizontalOverscroll = 0.0;
+  bool _hasTriggeredBoundaryInCurrentDrag = false;
 
   @override
   void initState() {
@@ -320,17 +324,35 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                     ? const Center(child: CircularProgressIndicator())
                     : NotificationListener<ScrollNotification>(
                         onNotification: (notification) {
-                          if (notification is OverscrollNotification) {
-                            if (notification.overscroll < 0 && !_viewModel.canGoNext) {
-                              _triggerBoundaryFeedback();
-                            } else if (notification.overscroll > 0 && !_viewModel.canGoPrevious) {
-                              _triggerBoundaryFeedback();
+                          // Only handle horizontal scroll events originating directly from the PageView (depth == 0).
+                          // Descendant vertical scrolling from inner lists is ignored to eliminate stray vibrations.
+                          if (notification.depth == 0 && notification.metrics.axis == Axis.horizontal) {
+                            if (notification is OverscrollNotification) {
+                              _accumulatedHorizontalOverscroll += notification.overscroll;
+                              const double overscrollThreshold = 48.0;
+
+                              if (!_hasTriggeredBoundaryInCurrentDrag &&
+                                  _accumulatedHorizontalOverscroll.abs() >= overscrollThreshold) {
+                                if (_accumulatedHorizontalOverscroll < 0 && !_viewModel.canGoNext) {
+                                  _hasTriggeredBoundaryInCurrentDrag = true;
+                                  _triggerBoundaryFeedback();
+                                } else if (_accumulatedHorizontalOverscroll > 0 && !_viewModel.canGoPrevious) {
+                                  _hasTriggeredBoundaryInCurrentDrag = true;
+                                  _triggerBoundaryFeedback();
+                                }
+                              }
+                            } else if (notification is ScrollEndNotification ||
+                                (notification is UserScrollNotification &&
+                                    notification.direction == ScrollDirection.idle)) {
+                              _accumulatedHorizontalOverscroll = 0.0;
+                              _hasTriggeredBoundaryInCurrentDrag = false;
                             }
                           }
                           return false;
                         },
                         child: PageView.builder(
                           controller: _pageController,
+                          physics: const HalfScreenPageScrollPhysics(),
                           itemCount: _viewModel.availableDates.length,
                           onPageChanged: (index) {
                             if (index >= 0 && index < _viewModel.availableDates.length) {
