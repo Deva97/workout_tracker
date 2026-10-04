@@ -10,6 +10,30 @@ class WorkoutDbContext extends ExcelContext {
   ExcelTable<Exercise> _exercises;
   ExcelTable<DailyRecord> _dailyRecords;
 
+  // High-performance O(1) in-memory lookup indexes
+  final Map<String, Exercise> _exerciseGuidIndex = {};
+  final Map<int, List<DailyRecord>> _recordsByDateKey = {};
+
+  static int _dateKey(DateTime d) => d.year * 10000 + d.month * 100 + d.day;
+
+  void _rebuildExerciseIndex() {
+    _exerciseGuidIndex.clear();
+    for (final ex in _exercises) {
+      _exerciseGuidIndex[ex.guid] = ex;
+    }
+  }
+
+  void _rebuildDailyRecordIndex() {
+    _recordsByDateKey.clear();
+    for (final rec in _dailyRecords) {
+      final key = _dateKey(rec.date);
+      _recordsByDateKey.putIfAbsent(key, () => []).add(rec);
+    }
+    for (final list in _recordsByDateKey.values) {
+      list.sort((a, b) => a.set.compareTo(b.set));
+    }
+  }
+
   WorkoutDbContext({
     ExcelTable<Exercise>? exercises,
     ExcelTable<DailyRecord>? dailyRecords,
@@ -22,30 +46,36 @@ class WorkoutDbContext extends ExcelContext {
             ExcelTable<DailyRecord>(
               sheetName: 'Sheet1',
               mapper: DailyRecord.excelMapper,
-            );
+            ) {
+    _rebuildExerciseIndex();
+    _rebuildDailyRecordIndex();
+  }
 
-        /// Reads all exercises from the context.
-        List<Exercise> readExercises() => _exercises.toList();
+  /// Reads all exercises from the context.
+  List<Exercise> readExercises() => _exercises.toList();
 
-        /// Creates a query over the exercise table.
-        ExcelQuery<Exercise> queryExercises() => _exercises.query();
+  /// Creates a query over the exercise table.
+  ExcelQuery<Exercise> queryExercises() => _exercises.query();
 
-        /// Returns the first exercise matching [predicate], or `null` if none match.
-        Exercise? firstExerciseOrDefault([bool Function(Exercise exercise)? predicate]) =>
-          _exercises.firstOrDefault(predicate);
+  /// Returns the first exercise matching [predicate], or `null` if none match.
+  Exercise? firstExerciseOrDefault([bool Function(Exercise exercise)? predicate]) =>
+      _exercises.firstOrDefault(predicate);
 
-        /// Reads all daily records from the context.
-        List<DailyRecord> readDailyRecords() => _dailyRecords.toList();
+  /// Reads all daily records from the context.
+  List<DailyRecord> readDailyRecords() => _dailyRecords.toList();
 
-        /// Creates a query over the daily record table.
-        ExcelQuery<DailyRecord> queryDailyRecords() => _dailyRecords.query();
+  /// Creates a query over the daily record table.
+  ExcelQuery<DailyRecord> queryDailyRecords() => _dailyRecords.query();
 
-        /// Returns the first daily record matching [predicate], or `null` if none match.
-        DailyRecord? firstDailyRecordOrDefault([bool Function(DailyRecord record)? predicate]) =>
-          _dailyRecords.firstOrDefault(predicate);
+  /// Returns the first daily record matching [predicate], or `null` if none match.
+  DailyRecord? firstDailyRecordOrDefault([bool Function(DailyRecord record)? predicate]) =>
+      _dailyRecords.firstOrDefault(predicate);
 
   /// Adds [exercise] to the exercise table.
-  void addExercise(Exercise exercise) => _exercises.add(exercise);
+  void addExercise(Exercise exercise) {
+    _exercises.add(exercise);
+    _exerciseGuidIndex[exercise.guid] = exercise;
+  }
 
   /// Replaces the exercise table with [replacement].
   void replaceExercises(Iterable<Exercise> replacement) {
@@ -53,21 +83,38 @@ class WorkoutDbContext extends ExcelContext {
     _exercises
       ..clear()
       ..addAll(entities);
+    _rebuildExerciseIndex();
   }
 
   /// Updates the first exercise matching [matches] and reports whether it was found.
   bool updateExercise(
     Exercise exercise,
     bool Function(Exercise existing) matches,
-  ) =>
-      _exercises.update(exercise, matches);
+  ) {
+    final updated = _exercises.update(exercise, matches);
+    if (updated) {
+      _rebuildExerciseIndex();
+    }
+    return updated;
+  }
 
   /// Deletes exercises matching [matches] and returns the number removed.
-  int deleteExercisesWhere(bool Function(Exercise exercise) matches) =>
-      _exercises.deleteWhere(matches);
+  int deleteExercisesWhere(bool Function(Exercise exercise) matches) {
+    final count = _exercises.deleteWhere(matches);
+    if (count > 0) {
+      _rebuildExerciseIndex();
+    }
+    return count;
+  }
 
   /// Adds [record] to the daily record table.
-  void addDailyRecord(DailyRecord record) => _dailyRecords.add(record);
+  void addDailyRecord(DailyRecord record) {
+    _dailyRecords.add(record);
+    final key = _dateKey(record.date);
+    final list = _recordsByDateKey.putIfAbsent(key, () => []);
+    list.add(record);
+    list.sort((a, b) => a.set.compareTo(b.set));
+  }
 
   /// Replaces the daily record table with [replacement].
   void replaceDailyRecords(Iterable<DailyRecord> replacement) {
@@ -75,18 +122,29 @@ class WorkoutDbContext extends ExcelContext {
     _dailyRecords
       ..clear()
       ..addAll(entities);
+    _rebuildDailyRecordIndex();
   }
 
   /// Updates the first daily record matching [matches] and reports whether it was found.
   bool updateDailyRecord(
     DailyRecord record,
     bool Function(DailyRecord existing) matches,
-  ) =>
-      _dailyRecords.update(record, matches);
+  ) {
+    final updated = _dailyRecords.update(record, matches);
+    if (updated) {
+      _rebuildDailyRecordIndex();
+    }
+    return updated;
+  }
 
   /// Deletes daily records matching [matches] and returns the number removed.
-  int deleteDailyRecordsWhere(bool Function(DailyRecord record) matches) =>
-      _dailyRecords.deleteWhere(matches);
+  int deleteDailyRecordsWhere(bool Function(DailyRecord record) matches) {
+    final count = _dailyRecords.deleteWhere(matches);
+    if (count > 0) {
+      _rebuildDailyRecordIndex();
+    }
+    return count;
+  }
 
   /// Load exercises table from [Exercise_DB.xlsx] byte stream.
   void loadExerciseDbFromBytes(List<int> bytes) {
@@ -95,6 +153,7 @@ class WorkoutDbContext extends ExcelContext {
       mapper: Exercise.excelMapper,
       sheetName: 'Sheet1',
     );
+    _rebuildExerciseIndex();
   }
 
   /// Save exercises table to [Exercise_DB.xlsx] byte stream.
@@ -109,6 +168,7 @@ class WorkoutDbContext extends ExcelContext {
       mapper: DailyRecord.excelMapper,
       sheetName: 'Sheet1',
     );
+    _rebuildDailyRecordIndex();
   }
 
   /// Loads daily records from [Daily_record.xlsx] byte stream, retaining entries since [since].
@@ -132,6 +192,7 @@ class WorkoutDbContext extends ExcelContext {
         return !recordDate.isBefore(earliestDate);
       }).toList(),
     );
+    _rebuildDailyRecordIndex();
   }
 
   /// Save daily records table to [Daily_record.xlsx] byte stream.
@@ -140,27 +201,16 @@ class WorkoutDbContext extends ExcelContext {
   }
 
   /// Query workout entries for a specific day (default: today) resolved with associated parent [Exercise] entity.
-  /// Uses single index map lookup (r.workoutId == exercise.guid) to prevent N+1 queries.
+  /// Uses single index map lookup (O(1)) without linear table scanning.
   List<DailyWorkoutEntry> getTodaysWorkoutEntries([DateTime? date]) {
     final targetDate = date ?? DateTime.now();
+    final key = _dateKey(targetDate);
+    final records = _recordsByDateKey[key];
 
-    // 1. Filter daily records matching target date using ExcelORM query
-    final todaysRecords = _dailyRecords.whereQuery((r) {
-      return r.date.year == targetDate.year &&
-          r.date.month == targetDate.month &&
-          r.date.day == targetDate.day;
-    }).orderBy((r) => r.set).toList();
+    if (records == null || records.isEmpty) return [];
 
-    if (todaysRecords.isEmpty) return [];
-
-    // 2. Build index of exercises by GUID to resolve relationship efficiently (0 N+1 queries)
-    final exerciseMap = <String, Exercise>{
-      for (final exercise in _exercises) exercise.guid: exercise,
-    };
-
-    // 3. Construct relational DTO entries
-    return todaysRecords.map((record) {
-      final exercise = exerciseMap[record.workoutId] ??
+    return records.map((record) {
+      final exercise = _exerciseGuidIndex[record.workoutId] ??
           Exercise(
             guid: record.workoutId,
             name: record.workoutName.isNotEmpty ? record.workoutName : 'Unknown Exercise',

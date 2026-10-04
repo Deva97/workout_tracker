@@ -113,12 +113,6 @@ class _AddWorkoutSetModalState extends State<AddWorkoutSetModal> {
         _setController.text = (setNumber + 1).toString();
         _activePreviousRecord = record;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Set $setNumber added for ${_selectedExercise!.name}!'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
     } else {
       Navigator.of(context).pop();
     }

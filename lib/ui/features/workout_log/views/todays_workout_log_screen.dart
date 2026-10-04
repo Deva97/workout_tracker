@@ -7,8 +7,10 @@ import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/domain/repositories/auth_repository.dart' show SyncState;
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
-import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
+import 'package:workout_tracker/ui/core/widgets/workout_delete_confirm_dialog.dart';
+import 'package:workout_tracker/ui/core/widgets/sync_failure_dialog.dart';
+import 'package:workout_tracker/ui/core/widgets/workout_activity_success_dialog.dart';
 import '../view_models/todays_workout_log_view_model.dart';
 import 'widgets/add_workout_set_modal.dart';
 import 'widgets/boundary_shake_wrapper.dart';
@@ -62,9 +64,10 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     setState(() {});
 
     if (_pageController.hasClients) {
+      final isScrolling = _pageController.position.isScrollingNotifier.value;
       final currentPage = _pageController.page?.round() ?? 0;
       final targetPage = _viewModel.currentDateIndex;
-      if (targetPage >= 0 && currentPage != targetPage) {
+      if (!isScrolling && targetPage >= 0 && currentPage != targetPage) {
         _pageController.jumpToPage(targetPage);
       }
     }
@@ -91,29 +94,172 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
   Future<void> _deleteRecord(DailyWorkoutEntry entry) async {
     final deletedRecord = entry.record;
-    try {
-      await _viewModel.deleteSet(entry);
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Set ${deletedRecord.set} for "${entry.exercise.name}" deleted'),
-          action: SnackBarAction(
-            label: 'Undo',
-            textColor: AppColors.primaryLight,
-            onPressed: () async {
-              await _viewModel.restoreSet(deletedRecord);
-            },
-          ),
-          duration: const Duration(seconds: 4),
-        ),
+    // Step 1: Confirmation modal with Cancel or OK
+    final confirmed = await showWorkoutDeleteConfirmDialog(
+      context: context,
+      exerciseName: entry.exercise.name,
+      setNumber: deletedRecord.set,
+      weight: deletedRecord.weight,
+      reps: deletedRecord.reps,
+      rir: deletedRecord.rir,
+    );
+
+    if (confirmed != true) return; // User tapped Cancel or dismissed
+
+    // Step 2: User tapped OK -> Delete and sync immediately
+    await _executeDeleteWithSync(entry);
+  }
+
+  Future<void> _executeDeleteWithSync(DailyWorkoutEntry entry) async {
+    final deletedRecord = entry.record;
+    final syncResult = await _viewModel.deleteSetAndSync(entry);
+
+    if (!mounted) return;
+
+    if (syncResult == SyncState.synced) {
+      showWorkoutActivitySuccessDialog(
+        context: context,
+        exerciseName: entry.exercise.name,
+        setNumber: deletedRecord.set,
+        weight: deletedRecord.weight,
+        reps: deletedRecord.reps,
+        rir: deletedRecord.rir,
+        isDelete: true,
       );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error deleting set: $e')),
-      );
+    } else {
+      _showDeleteFailureDialog(entry);
     }
+  }
+
+  void _showDeleteFailureDialog(DailyWorkoutEntry entry) {
+    if (!mounted) return;
+    final deletedRecord = entry.record;
+    showSyncFailureDialog(
+      context: context,
+      title: 'Sync Failed',
+      message: 'Failed to sync deletion with the database. Would you like to retry or cancel?',
+      onRetry: () async {
+        final retryResult = await _viewModel.retrySync();
+        if (!mounted) return;
+        if (retryResult == SyncState.synced) {
+          showWorkoutActivitySuccessDialog(
+            context: context,
+            exerciseName: entry.exercise.name,
+            setNumber: deletedRecord.set,
+            weight: deletedRecord.weight,
+            reps: deletedRecord.reps,
+            rir: deletedRecord.rir,
+            isDelete: true,
+          );
+        } else {
+          _showDeleteFailureDialog(entry);
+        }
+      },
+      onCancel: () async {
+        // Rollback: restore deleted set so it remains on the page!
+        await _viewModel.rollbackDeletedSet(deletedRecord);
+      },
+    );
+  }
+
+  Future<void> _executeSaveWithSync(DailyRecord record, {required bool keepOpen}) async {
+    final syncResult = await _viewModel.saveSetAndSync(record);
+
+    if (!mounted) return;
+
+    if (syncResult == SyncState.synced) {
+      showWorkoutActivitySuccessDialog(
+        context: context,
+        exerciseName: record.workoutName,
+        setNumber: record.set,
+        weight: record.weight,
+        reps: record.reps,
+        rir: record.rir,
+        isEdit: false,
+      );
+    } else {
+      _showSaveFailureDialog(record, keepOpen: keepOpen);
+    }
+  }
+
+  void _showSaveFailureDialog(DailyRecord record, {required bool keepOpen}) {
+    if (!mounted) return;
+    showSyncFailureDialog(
+      context: context,
+      title: 'Sync Failed',
+      message: 'Failed to sync new workout set with the database. Would you like to retry or cancel?',
+      onRetry: () async {
+        final retryResult = await _viewModel.retrySync();
+        if (!mounted) return;
+        if (retryResult == SyncState.synced) {
+          showWorkoutActivitySuccessDialog(
+            context: context,
+            exerciseName: record.workoutName,
+            setNumber: record.set,
+            weight: record.weight,
+            reps: record.reps,
+            rir: record.rir,
+            isEdit: false,
+          );
+        } else {
+          _showSaveFailureDialog(record, keepOpen: keepOpen);
+        }
+      },
+      onCancel: () async {
+        // Rollback: cancel the operation so workout log is NOT seen on the page!
+        await _viewModel.rollbackAddedSet(record);
+      },
+    );
+  }
+
+  Future<void> _executeEditWithSync(DailyRecord record, {required DailyRecord previousRecord}) async {
+    final syncResult = await _viewModel.editSetAndSync(record);
+
+    if (!mounted) return;
+
+    if (syncResult == SyncState.synced) {
+      showWorkoutActivitySuccessDialog(
+        context: context,
+        exerciseName: record.workoutName,
+        setNumber: record.set,
+        weight: record.weight,
+        reps: record.reps,
+        rir: record.rir,
+        isEdit: true,
+      );
+    } else {
+      _showEditFailureDialog(record, previousRecord: previousRecord);
+    }
+  }
+
+  void _showEditFailureDialog(DailyRecord record, {required DailyRecord previousRecord}) {
+    if (!mounted) return;
+    showSyncFailureDialog(
+      context: context,
+      title: 'Sync Failed',
+      message: 'Failed to sync updated set with the database. Would you like to retry or cancel?',
+      onRetry: () async {
+        final retryResult = await _viewModel.retrySync();
+        if (!mounted) return;
+        if (retryResult == SyncState.synced) {
+          showWorkoutActivitySuccessDialog(
+            context: context,
+            exerciseName: record.workoutName,
+            setNumber: record.set,
+            weight: record.weight,
+            reps: record.reps,
+            rir: record.rir,
+            isEdit: true,
+          );
+        } else {
+          _showEditFailureDialog(record, previousRecord: previousRecord);
+        }
+      },
+      onCancel: () async {
+        await _viewModel.rollbackEditedSet(previousRecord);
+      },
+    );
   }
 
   Future<void> _triggerManualSync() async {
@@ -122,16 +268,22 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
     if (result == SyncState.synced) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Synced with Google Drive Excel!'),
+        SnackBar(
+          content: const Text('Synced with Google Drive Excel!'),
           backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sync failed. Changes saved locally in cache.'),
+        SnackBar(
+          content: const Text('Sync failed. Changes saved locally in cache.'),
           backgroundColor: AppColors.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -191,23 +343,10 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
           targetDate: _viewModel.selectedDate,
           getPreviousRecord: (guid) => _viewModel.getLastRecordedSet(guid),
           onSaveSet: (record, keepOpen) async {
-            try {
-              if (editRecord != null) {
-                await _viewModel.editSet(record);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Set updated successfully')),
-                  );
-                }
-              } else {
-                await _viewModel.saveSet(record);
-              }
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Failed to save set: $e')),
-                );
-              }
+            if (editRecord != null) {
+              await _executeEditWithSync(record, previousRecord: editRecord);
+            } else {
+              await _executeSaveWithSync(record, keepOpen: keepOpen);
             }
           },
         ),
@@ -278,42 +417,44 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
         child: Column(
           children: [
             // Top Date Navigation Bar (< Date >)
-            DateNavigatorBar(
-              selectedDate: _viewModel.selectedDate,
-              isViewingToday: _viewModel.isViewingToday,
-              canGoPrevious: _viewModel.canGoPrevious,
-              canGoNext: _viewModel.canGoNext,
-              onPreviousPressed: () {
-                if (_viewModel.canGoPrevious) {
+            RepaintBoundary(
+              child: DateNavigatorBar(
+                selectedDate: _viewModel.selectedDate,
+                isViewingToday: _viewModel.isViewingToday,
+                canGoPrevious: _viewModel.canGoPrevious,
+                canGoNext: _viewModel.canGoNext,
+                onPreviousPressed: () {
+                  if (_viewModel.canGoPrevious) {
+                    _pageController.animateToPage(
+                      _viewModel.currentDateIndex + 1,
+                      duration: const Duration(milliseconds: 280),
+                      curve: Curves.easeInOut,
+                    );
+                  } else {
+                    _triggerBoundaryFeedback();
+                  }
+                },
+                onNextPressed: () {
+                  if (_viewModel.canGoNext) {
+                    _pageController.animateToPage(
+                      _viewModel.currentDateIndex - 1,
+                      duration: const Duration(milliseconds: 280),
+                      curve: Curves.easeInOut,
+                    );
+                  } else {
+                    _triggerBoundaryFeedback();
+                  }
+                },
+                onDatePickerPressed: _openDatePicker,
+                onTodayPressed: () {
                   _pageController.animateToPage(
-                    _viewModel.currentDateIndex + 1,
-                    duration: const Duration(milliseconds: 280),
+                    0,
+                    duration: const Duration(milliseconds: 320),
                     curve: Curves.easeInOut,
                   );
-                } else {
-                  _triggerBoundaryFeedback();
-                }
-              },
-              onNextPressed: () {
-                if (_viewModel.canGoNext) {
-                  _pageController.animateToPage(
-                    _viewModel.currentDateIndex - 1,
-                    duration: const Duration(milliseconds: 280),
-                    curve: Curves.easeInOut,
-                  );
-                } else {
-                  _triggerBoundaryFeedback();
-                }
-              },
-              onDatePickerPressed: _openDatePicker,
-              onTodayPressed: () {
-                _pageController.animateToPage(
-                  0,
-                  duration: const Duration(milliseconds: 320),
-                  curve: Curves.easeInOut,
-                );
-              },
-              onBoundaryAttempt: _triggerBoundaryFeedback,
+                },
+                onBoundaryAttempt: _triggerBoundaryFeedback,
+              ),
             ),
 
             // Horizontal PageView for scrolling between dates
@@ -371,25 +512,29 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                               final dateLabel = isPageToday
                                   ? 'Today'
                                   : DateFormat('EEEE, MMM d').format(pageDate);
-                              return SingleChildScrollView(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                child: Container(
-                                  height: MediaQuery.of(context).size.height * 0.65,
-                                  padding: const EdgeInsets.all(16),
-                                  child: EmptyStateWidget(
-                                    icon: Icons.fitness_center_rounded,
-                                    title: isPageToday ? 'No Workout Logged Today' : 'No Workout on $dateLabel',
-                                    description: isPageToday
-                                        ? 'Track your workout sets, weights, reps, and RIR for today\'s session.'
-                                        : 'No sets were recorded for this day. You can add sets retrospectively if needed.',
-                                    buttonText: isPageToday ? 'Add First Workout Set' : 'Add Workout Set',
-                                    onButtonPressed: () => _openAddSetModal(),
+                              return RepaintBoundary(
+                                child: SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  child: Container(
+                                    height: MediaQuery.of(context).size.height * 0.65,
+                                    padding: const EdgeInsets.all(16),
+                                    child: EmptyStateWidget(
+                                      icon: Icons.fitness_center_rounded,
+                                      title: isPageToday ? 'No Workout Logged Today' : 'No Workout on $dateLabel',
+                                      description: isPageToday
+                                          ? 'Track your workout sets, weights, reps, and RIR for today\'s session.'
+                                          : 'No sets were recorded for this day. You can add sets retrospectively if needed.',
+                                      buttonText: isPageToday ? 'Add First Workout Set' : 'Add Workout Set',
+                                      onButtonPressed: () => _openAddSetModal(),
+                                    ),
                                   ),
                                 ),
                               );
                             }
 
-                            return _buildGroupedEntriesList(entries, isDark);
+                            return RepaintBoundary(
+                              child: _buildGroupedEntriesList(entries, isDark),
+                            );
                           },
                         ),
                       ),
@@ -403,95 +548,145 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
   Widget _buildGroupedEntriesList(List<DailyWorkoutEntry> entries, bool isDark) {
     final groupedEntries = _groupEntries(entries);
+    final groupedList = groupedEntries.values.toList(growable: false);
 
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-      itemCount: groupedEntries.keys.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 16),
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 90),
+      itemCount: groupedList.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
-        final exerciseGuid = groupedEntries.keys.elementAt(index);
-        final exerciseEntries = groupedEntries[exerciseGuid]!;
+        final exerciseEntries = groupedList[index];
         final exercise = exerciseEntries.first.exercise;
 
         return Container(
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isDark ? AppColors.cardBorderDark : AppColors.cardBorderLight,
             ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.02),
-                blurRadius: 8,
+                blurRadius: 6,
                 offset: const Offset(0, 2),
               ),
             ],
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Exercise Header Card
-              ModularCard(
-                title: exercise.name,
-                subtitle: '${exerciseEntries.length} ${exerciseEntries.length == 1 ? 'set' : 'sets'} completed',
-                icon: Icons.fitness_center_rounded,
-                iconColor: AppColors.primary,
-                badge: exercise.bodyPart.isNotEmpty
-                    ? StatusBadge.tag(
-                        label: exercise.bodyPart.toUpperCase(),
-                        color: AppColors.getMuscleColor(exercise.bodyPart),
-                      )
-                    : null,
-                trailing: IconButton(
-                  icon: const Icon(Icons.add_circle_outline_rounded, color: AppColors.primary, size: 22),
-                  tooltip: 'Add another set for this exercise',
-                  onPressed: () => _openAddSetModal(exercise),
-                ),
+              // Sleek, Compact Exercise Header
+              InkWell(
                 onTap: () => _openAddSetModal(exercise),
-              ),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+                  child: Row(
+                    children: [
+                      // Muscle Tag
+                      if (exercise.bodyPart.isNotEmpty) ...[
+                        StatusBadge.tag(
+                          label: exercise.bodyPart.toUpperCase(),
+                          color: AppColors.getMuscleColor(exercise.bodyPart),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
 
-              // Sets Details Table Container
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Column(
-                  children: exerciseEntries.map((entry) {
-                    final isPr = _viewModel.isPersonalRecord(entry);
-                    return Container(
-                      margin: const EdgeInsets.symmetric(vertical: 3),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isDark ? AppColors.surfaceDarkElevated : const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: isDark ? AppColors.cardBorderDark : const Color(0xFFEDF2F7),
+                      // Exercise Name
+                      Expanded(
+                        child: Text(
+                          exercise.name,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                            color: isDark ? Colors.white : AppColors.textPrimary,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+
+                      const SizedBox(width: 8),
+
+                      // Set count
+                      Text(
+                        '${exerciseEntries.length} ${exerciseEntries.length == 1 ? 'set' : 'sets'}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                        ),
+                      ),
+
+                      // Quick Add Set Button
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline_rounded, color: AppColors.primary, size: 20),
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.all(4),
+                        constraints: const BoxConstraints(),
+                        tooltip: 'Add set for ${exercise.name}',
+                        onPressed: () => _openAddSetModal(exercise),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              Divider(
+                height: 1,
+                thickness: 1,
+                color: isDark ? AppColors.cardBorderDark : AppColors.cardBorderLight,
+              ),
+
+              // Compact Set Rows
+              ...exerciseEntries.asMap().entries.map((entryItem) {
+                final setIndex = entryItem.key;
+                final entry = entryItem.value;
+                final isPr = _viewModel.isPersonalRecord(entry);
+
+                return Column(
+                  children: [
+                    if (setIndex > 0)
+                      Divider(
+                        height: 1,
+                        thickness: 1,
+                        indent: 14,
+                        endIndent: 14,
+                        color: isDark
+                            ? AppColors.cardBorderDark.withValues(alpha: 0.5)
+                            : AppColors.cardBorderLight.withValues(alpha: 0.5),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                       child: Row(
                         children: [
-                          // Set Number Badge
+                          // Set number pill
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: AppColors.primary.withValues(alpha: isDark ? 0.2 : 0.1),
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
                               'SET ${entry.record.set}',
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 11,
+                                fontSize: 10,
                                 color: AppColors.primary,
-                                letterSpacing: 0.3,
+                                letterSpacing: 0.2,
                               ),
                             ),
                           ),
+
+                          // PR Badge
                           if (isPr) ...[
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 5),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF59E0B).withValues(alpha: isDark ? 0.2 : 0.12),
-                                borderRadius: BorderRadius.circular(6),
+                                borderRadius: BorderRadius.circular(4),
                                 border: Border.all(
                                   color: const Color(0xFFF59E0B).withValues(alpha: 0.4),
                                 ),
@@ -500,16 +695,17 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                 'PR 🏆',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w800,
-                                  fontSize: 10,
+                                  fontSize: 9,
                                   color: Color(0xFFF59E0B),
                                   letterSpacing: 0.2,
                                 ),
                               ),
                             ),
                           ],
-                          const SizedBox(width: 12),
 
-                          // Metrics: Weight & Reps & RIR
+                          const SizedBox(width: 8),
+
+                          // Middle Metrics: Weight × Reps • RIR
                           Expanded(
                             child: Text.rich(
                               TextSpan(
@@ -519,16 +715,11 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                       text: '${entry.record.weight} kg',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
-                                        fontSize: 14,
+                                        fontSize: 13,
                                         color: isDark ? AppColors.textLight : AppColors.textPrimary,
                                       ),
                                     ),
-                                    TextSpan(
-                                      text: '  •  ',
-                                      style: TextStyle(
-                                        color: isDark ? Colors.white30 : Colors.grey.shade400,
-                                      ),
-                                    ),
+                                    const TextSpan(text: ' × '),
                                   ],
                                   TextSpan(
                                     text: '${entry.record.reps} reps',
@@ -539,13 +730,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                     ),
                                   ),
                                   TextSpan(
-                                    text: '  •  ',
-                                    style: TextStyle(
-                                      color: isDark ? Colors.white30 : Colors.grey.shade400,
-                                    ),
-                                  ),
-                                  TextSpan(
-                                    text: 'RIR ${entry.record.rir}',
+                                    text: '  •  RIR ${entry.record.rir}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w500,
                                       fontSize: 12,
@@ -554,26 +739,28 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                                   ),
                                 ],
                               ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
 
-                          // Actions: Edit & Delete
+                          // Actions: Compact Edit & Delete
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.primary),
+                                icon: const Icon(Icons.edit_outlined, size: 16, color: AppColors.primary),
                                 visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.all(6),
+                                padding: const EdgeInsets.all(5),
                                 constraints: const BoxConstraints(),
                                 tooltip: 'Edit set',
                                 onPressed: () => _openAddSetModal(entry.exercise, entry.record),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 4),
                               IconButton(
-                                icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
+                                icon: const Icon(Icons.delete_outline_rounded, size: 16, color: AppColors.error),
                                 visualDensity: VisualDensity.compact,
-                                padding: const EdgeInsets.all(6),
+                                padding: const EdgeInsets.all(5),
                                 constraints: const BoxConstraints(),
                                 tooltip: 'Delete set',
                                 onPressed: () => _deleteRecord(entry),
@@ -582,10 +769,10 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                           ),
                         ],
                       ),
-                    );
-                  }).toList(),
-                ),
-              ),
+                    ),
+                  ],
+                );
+              }),
             ],
           ),
         );

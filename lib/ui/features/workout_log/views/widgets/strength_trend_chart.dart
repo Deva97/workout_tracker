@@ -66,6 +66,39 @@ class _StrengthTrendChartState extends State<StrengthTrendChart> with SingleTick
   late AnimationController _animController;
   late Animation<double> _animation;
 
+  List<String> _formattedDates = [];
+  double _minVal = 0.0;
+  double _maxVal = 0.0;
+
+  void _precomputeMetrics() {
+    if (widget.points.isEmpty) {
+      _formattedDates = [];
+      _minVal = 0.0;
+      _maxVal = 0.0;
+      return;
+    }
+    _formattedDates = widget.points.map((p) =>
+      '${p.date.month.toString().padLeft(2, '0')}/${p.date.day.toString().padLeft(2, '0')}'
+    ).toList();
+
+    double minV = widget.points.first.valueForMetric(widget.metricType);
+    double maxV = minV;
+    for (int i = 1; i < widget.points.length; i++) {
+      final v = widget.points[i].valueForMetric(widget.metricType);
+      if (v < minV) minV = v;
+      if (v > maxV) maxV = v;
+    }
+
+    if (minV == maxV) {
+      _minVal = max(0, minV - 5.0);
+      _maxVal = maxV + 5.0;
+    } else {
+      final padding = (maxV - minV) * 0.15;
+      _minVal = max(0, minV - padding);
+      _maxVal = maxV + padding;
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +109,7 @@ class _StrengthTrendChartState extends State<StrengthTrendChart> with SingleTick
     _animation = CurvedAnimation(parent: _animController, curve: Curves.easeInOutCubic);
     _animController.forward();
 
+    _precomputeMetrics();
     if (widget.points.isNotEmpty) {
       _selectedIndex = widget.points.length - 1; // Default to latest point
     }
@@ -84,6 +118,9 @@ class _StrengthTrendChartState extends State<StrengthTrendChart> with SingleTick
   @override
   void didUpdateWidget(StrengthTrendChart oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.points != widget.points || oldWidget.metricType != widget.metricType) {
+      _precomputeMetrics();
+    }
     if (widget.points.isNotEmpty) {
       _selectedIndex = widget.points.length - 1;
     } else {
@@ -214,13 +251,18 @@ class _StrengthTrendChartState extends State<StrengthTrendChart> with SingleTick
                       child: AnimatedBuilder(
                         animation: _animation,
                         builder: (context, child) {
-                          return CustomPaint(
-                            painter: _TrendChartPainter(
-                              points: widget.points,
-                              selectedIndex: _selectedIndex,
-                              progress: _animation.value,
-                              metricType: widget.metricType,
-                              isDark: isDark,
+                          return RepaintBoundary(
+                            child: CustomPaint(
+                              painter: _TrendChartPainter(
+                                points: widget.points,
+                                selectedIndex: _selectedIndex,
+                                progress: _animation.value,
+                                metricType: widget.metricType,
+                                isDark: isDark,
+                                formattedDates: _formattedDates,
+                                minVal: _minVal,
+                                maxVal: _maxVal,
+                              ),
                             ),
                           );
                         },
@@ -286,6 +328,9 @@ class _TrendChartPainter extends CustomPainter {
   final double progress;
   final ChartMetricType metricType;
   final bool isDark;
+  final List<String> formattedDates;
+  final double minVal;
+  final double maxVal;
 
   _TrendChartPainter({
     required this.points,
@@ -293,6 +338,9 @@ class _TrendChartPainter extends CustomPainter {
     required this.progress,
     required this.metricType,
     required this.isDark,
+    required this.formattedDates,
+    required this.minVal,
+    required this.maxVal,
   });
 
   @override
@@ -306,22 +354,7 @@ class _TrendChartPainter extends CustomPainter {
 
     final double plotWidth = size.width - leftMargin - rightMargin;
     final double plotHeight = size.height - topMargin - bottomMargin;
-
-    // Extract values based on metric type
-    final values = points.map((p) => p.valueForMetric(metricType)).toList();
-    double minVal = values.reduce(min);
-    double maxVal = values.reduce(max);
-
-    if (minVal == maxVal) {
-      minVal = max(0, minVal - 5.0);
-      maxVal = maxVal + 5.0;
-    } else {
-      final padding = (maxVal - minVal) * 0.15;
-      minVal = max(0, minVal - padding);
-      maxVal = maxVal + padding;
-    }
-
-    final double valRange = maxVal - minVal;
+    final double valRange = maxVal > minVal ? maxVal - minVal : 1.0;
 
     // Compute coordinate points
     final List<Offset> coordPoints = [];
@@ -329,7 +362,8 @@ class _TrendChartPainter extends CustomPainter {
 
     for (int i = 0; i < points.length; i++) {
       final double x = points.length == 1 ? leftMargin + plotWidth / 2 : leftMargin + (i * stepX);
-      final double normalizedY = (values[i] - minVal) / valRange;
+      final double val = points[i].valueForMetric(metricType);
+      final double normalizedY = (val - minVal) / valRange;
       final double targetY = topMargin + (plotHeight * (1.0 - normalizedY));
       // Animate from baseline
       final double baselineY = topMargin + plotHeight;
@@ -440,8 +474,8 @@ class _TrendChartPainter extends CustomPainter {
       canvas.drawCircle(p, isSelected ? 6.0 : 4.0, nodeFillPaint);
       canvas.drawCircle(p, isSelected ? 6.0 : 4.0, nodeBorderPaint);
 
-      // Draw X-axis date labels
-      final dateText = DateFormat('MM/dd').format(points[i].date);
+      // Draw X-axis date labels using pre-formatted date strings
+      final dateText = formattedDates.length > i ? formattedDates[i] : '';
       final textSpan = TextSpan(
         text: dateText,
         style: TextStyle(

@@ -54,6 +54,9 @@ class GoogleDriveService {
   /// Real-time Sync State Notifier (synced, syncing, error)
   final ValueNotifier<SyncState> syncStateNotifier = ValueNotifier(SyncState.synced);
 
+  /// Test & simulation hook: when true, manualSyncToExcel throws an exception to simulate network/drive failure.
+  bool simulateSyncFailure = false;
+
   // Debouncing & serialization for daily record Drive uploads
   Timer? _dailyRecordSyncDebounceTimer;
   Future<void>? _inFlightDailyRecordSync;
@@ -740,6 +743,9 @@ class GoogleDriveService {
   Future<SyncState> manualSyncToExcel() async {
     _dailyRecordSyncDebounceTimer?.cancel();
     try {
+      if (simulateSyncFailure) {
+        throw Exception('Simulated sync failure for testing');
+      }
       await ensureDriveApiReady();
       if (_driveApi != null) {
         if (_inFlightDailyRecordSync != null) {

@@ -54,6 +54,9 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
   // In-memory cache for previous logged set per exercise
   final Map<String, DailyRecord> _lastRecordedCache = {};
 
+  // Token tracking the latest requested date to discard superseded background fetches
+  DateTime? _activeBackgroundFetchDate;
+
   ValueListenable<SyncState> get syncStateListenable => _workoutRepository.syncStateListenable;
 
   static DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -183,13 +186,18 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
     _recalculatePersonalRecords();
     notifyListeners();
 
-    // Background fresh fetch for the date
+    final fetchTarget = normalized;
+    _activeBackgroundFetchDate = fetchTarget;
+
+    // Background fresh fetch for the date (aborts if superseded by a subsequent swipe)
     try {
-      final workoutData = await _getTodaysWorkoutUseCase.execute(_selectedDate);
+      final workoutData = await _getTodaysWorkoutUseCase.execute(fetchTarget);
+      if (_activeBackgroundFetchDate != fetchTarget) return; // Superseded
       _todaysEntries = workoutData.entries;
       _recalculatePersonalRecords();
 
       final weeklyRecords = await _workoutRepository.getWeeklyDailyRecords();
+      if (_activeBackgroundFetchDate != fetchTarget) return; // Superseded
       final allRecords = <DailyRecord>{
         ..._workoutRepository.getCachedDailyRecords(),
         ...weeklyRecords,
@@ -198,7 +206,9 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
     } catch (_) {
       // Ignore background errors
     } finally {
-      notifyListeners();
+      if (_activeBackgroundFetchDate == fetchTarget) {
+        notifyListeners();
+      }
     }
   }
 
@@ -261,6 +271,62 @@ class TodaysWorkoutLogViewModel extends ChangeNotifier {
 
   Future<SyncState> manualSync() async {
     return _workoutRepository.manualSyncToExcel();
+  }
+
+  /// Add a set and immediately await synchronization with Google Drive Excel.
+  Future<SyncState> saveSetAndSync(DailyRecord record) async {
+    await saveSet(record);
+    return manualSync();
+  }
+
+  /// Roll back an added set if sync fails and the user cancels.
+  Future<void> rollbackAddedSet(DailyRecord record) async {
+    await _manageSetUseCase.deleteSet(record.id);
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
+    _recalculatePersonalRecords();
+
+    final hasRecords = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate).isNotEmpty;
+    final isToday = isSameDay(_selectedDate, DateTime.now());
+    if (!hasRecords && !isToday) {
+      _availableDates.removeWhere((d) => isSameDay(d, _selectedDate));
+      if (_availableDates.isEmpty) {
+        _availableDates.add(_normalizeDate(DateTime.now()));
+      }
+      _selectedDate = _availableDates.first;
+      _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
+    }
+
+    notifyListeners();
+  }
+
+  /// Edit a set and immediately await synchronization with Google Drive Excel.
+  Future<SyncState> editSetAndSync(DailyRecord record) async {
+    await editSet(record);
+    return manualSync();
+  }
+
+  /// Roll back an edited set if sync fails and the user cancels.
+  Future<void> rollbackEditedSet(DailyRecord previousRecord) async {
+    await _manageSetUseCase.editSet(previousRecord);
+    _todaysEntries = _getTodaysWorkoutUseCase.getCachedEntries(_selectedDate);
+    _recalculatePersonalRecords();
+    notifyListeners();
+  }
+
+  /// Delete a set and immediately await synchronization with Google Drive Excel.
+  Future<SyncState> deleteSetAndSync(DailyWorkoutEntry entry) async {
+    await deleteSet(entry);
+    return manualSync();
+  }
+
+  /// Roll back a deleted set if sync fails and the user cancels.
+  Future<void> rollbackDeletedSet(DailyRecord record) async {
+    await restoreSet(record);
+  }
+
+  /// Re-attempt synchronization with Google Drive Excel.
+  Future<SyncState> retrySync() async {
+    return manualSync();
   }
 
   void _recalculatePersonalRecords() {

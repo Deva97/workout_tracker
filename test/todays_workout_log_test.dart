@@ -13,15 +13,34 @@ import 'package:workout_tracker/ui/features/workout_log/views/widgets/add_workou
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/boundary_shake_wrapper.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/date_navigator_bar.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/half_screen_page_scroll_physics.dart';
+import 'package:workout_tracker/ui/core/widgets/workout_delete_confirm_dialog.dart';
+import 'package:workout_tracker/ui/core/widgets/sync_failure_dialog.dart';
+import 'package:workout_tracker/ui/core/widgets/workout_activity_success_dialog.dart';
 import 'package:workout_tracker/ui/features/workout_log/view_models/todays_workout_log_view_model.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('plugins.flutter.io/google_sign_in'),
+      (MethodCall methodCall) async {
+        if (methodCall.method == 'init') {
+          return null;
+        }
+        if (methodCall.method == 'isSignedIn') {
+          return false;
+        }
+        return null;
+      },
+    );
     SharedPreferences.setMockInitialValues({});
     GoogleDriveService().dbContext.replaceExercises([]);
     GoogleDriveService().dbContext.replaceDailyRecords([]);
     GoogleDriveService().syncStateNotifier.value = SyncState.synced;
+    GoogleDriveService().simulateSyncFailure = false;
   });
 
   group('Today Workout Log - ORM & Relational Query Tests', () {
@@ -195,6 +214,40 @@ void main() {
       expect(savedRecord!.rir, equals(2.0));
       expect(savedKeepOpen, isFalse);
     });
+
+    testWidgets('Add & Next triggers onSaveSet, advances set number, shows center popup dialog with OK button, and shows NO bottom snackbar', (tester) async {
+      DailyRecord? savedRecord;
+      bool? savedKeepOpen;
+
+      final testExercise = Exercise(guid: 'ex-1', name: 'Incline Press', bodyPart: 'Chest');
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AddWorkoutSetModal(
+              availableExercises: [testExercise],
+              onSaveSet: (record, keepOpen) {
+                savedRecord = record;
+                savedKeepOpen = keepOpen;
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Tap 'Add & Next'
+      await tester.tap(find.text('Add & Next'));
+      await tester.pumpAndSettle();
+
+      expect(savedRecord, isNotNull);
+      expect(savedKeepOpen, isTrue);
+
+      // Verify NO bottom snackbar is shown
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Modal is still open and set number incremented from 1 to 2
+      expect(find.widgetWithText(TextFormField, '2'), findsOneWidget);
+    });
   });
 
   group('TodaysWorkoutLogScreen - Widget UI Tests', () {
@@ -308,6 +361,446 @@ void main() {
 
       expect(find.text('PR 🏆'), findsOneWidget);
     });
+
+    testWidgets('renders compact exercise card with inline tags, set pills, and center delete dialog with Undo on delete', (tester) async {
+      final exercise = Exercise(guid: 'ex-chest', name: 'Incline Dumbbell Press', bodyPart: 'Chest');
+      final record = DailyRecord(
+        id: 'rec-inc-1',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 12,
+        rir: 2.0,
+        weight: 32.0,
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([record.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([record]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify compact header elements
+      expect(find.text('CHEST'), findsOneWidget);
+      expect(find.text('Incline Dumbbell Press'), findsOneWidget);
+      expect(find.text('1 set'), findsOneWidget);
+      expect(find.byIcon(Icons.add_circle_outline_rounded), findsOneWidget);
+
+      // Verify compact set pill and compact single-line metrics format
+      expect(find.text('SET 1'), findsOneWidget);
+      expect(find.textContaining('32.0 kg'), findsOneWidget);
+      expect(find.textContaining('12 reps'), findsOneWidget);
+      expect(find.textContaining('RIR 2.0'), findsOneWidget);
+
+      // Verify delete button triggers WorkoutDeleteConfirmDialog with Cancel and OK
+      final deleteBtn = find.byTooltip('Delete set');
+      expect(deleteBtn, findsOneWidget);
+      await tester.tap(deleteBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutDeleteConfirmDialog), findsOneWidget);
+      expect(find.text('Delete Workout Set?'), findsOneWidget);
+      expect(find.text('Incline Dumbbell Press'), findsWidgets);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('OK'), findsOneWidget);
+
+      // Verify no bottom snackbar is shown
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Tapping Cancel keeps the set intact
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutDeleteConfirmDialog), findsNothing);
+      expect(find.text('SET 1'), findsOneWidget);
+
+      // Now tap delete again and tap OK to confirm
+      await tester.tap(deleteBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutDeleteConfirmDialog), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // Post-sync success dialog is displayed
+      expect(find.byType(WorkoutActivitySuccessDialog), findsOneWidget);
+      expect(find.text('Workout Activity Deleted'), findsOneWidget);
+      expect(find.text('OK'), findsOneWidget);
+
+      // Tap OK on success dialog
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutActivitySuccessDialog), findsNothing);
+      expect(find.text('Incline Dumbbell Press'), findsNothing);
+
+      // Advance clock to drain debounce timer
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('when delete sync fails, shows SyncFailureDialog and tapping Cancel rolls back deletion so set remains on page', (tester) async {
+      final exercise = Exercise(guid: 'ex-chest', name: 'Incline Dumbbell Press', bodyPart: 'Chest');
+      final record = DailyRecord(
+        id: 'rec-inc-2',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 12,
+        rir: 2.0,
+        weight: 32.0,
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([record.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([record]);
+
+      // Set simulate sync failure so manualSync fails
+      GoogleDriveService().simulateSyncFailure = true;
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      final deleteBtn = find.byTooltip('Delete set');
+      await tester.tap(deleteBtn);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutDeleteConfirmDialog), findsOneWidget);
+
+      // Tap OK to confirm delete
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      // Because sync failed, SyncFailureDialog appears!
+      expect(find.byType(SyncFailureDialog), findsOneWidget);
+      expect(find.text('Sync Failed'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      // Tap Cancel -> rolls back deletion, so the set remains on the page!
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SyncFailureDialog), findsNothing);
+      expect(find.text('Incline Dumbbell Press'), findsOneWidget);
+
+      // Restore sync state
+      GoogleDriveService().simulateSyncFailure = false;
+      GoogleDriveService().syncStateNotifier.value = SyncState.synced;
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('saving set from modal shows center WorkoutActivitySuccessDialog with OK option and no bottom snackbar', (tester) async {
+      final exercise = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap "Add First Workout Set" button to open modal
+      await tester.tap(find.text('Add First Workout Set'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AddWorkoutSetModal), findsOneWidget);
+
+      // Save Set
+      await tester.tap(find.text('Save Set'));
+      await tester.pumpAndSettle();
+
+      // Modal closed, center confirmation dialog is displayed
+      expect(find.byType(WorkoutActivitySuccessDialog), findsOneWidget);
+      expect(find.text('Workout Activity Added'), findsOneWidget);
+      expect(find.text('Bench Press'), findsWidgets);
+      expect(find.text('OK'), findsOneWidget);
+
+      // Verify no plain bottom snackbar
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Tapping OK dismisses dialog
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutActivitySuccessDialog), findsNothing);
+      expect(find.text('Bench Press'), findsOneWidget);
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('when saving set sync fails, shows SyncFailureDialog and tapping Cancel rolls back added set so it is NOT seen on page', (tester) async {
+      final exercise = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      // Set simulate sync failure so manualSync fails
+      GoogleDriveService().simulateSyncFailure = true;
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Add First Workout Set'));
+      await tester.pumpAndSettle();
+
+      // Save Set
+      await tester.tap(find.text('Save Set'));
+      await tester.pumpAndSettle();
+
+      // SyncFailureDialog appears!
+      expect(find.byType(SyncFailureDialog), findsOneWidget);
+      expect(find.text('Sync Failed'), findsOneWidget);
+
+      // Tap Cancel -> rolls back operation!
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SyncFailureDialog), findsNothing);
+      // Not seen on page: empty state is shown!
+      expect(find.text('No Workout Logged Today'), findsOneWidget);
+
+      // Restore sync state
+      GoogleDriveService().simulateSyncFailure = false;
+      GoogleDriveService().syncStateNotifier.value = SyncState.synced;
+      await tester.pump(const Duration(seconds: 5));
+    });
+
+    testWidgets('editing set shows center WorkoutActivitySuccessDialog with Workout Set Updated title', (tester) async {
+      final exercise = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final record = DailyRecord(
+        id: 'rec-1',
+        workoutId: exercise.guid,
+        workoutName: exercise.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      SharedPreferences.setMockInitialValues({
+        'exercise_cache': jsonEncode([exercise.toMap()]),
+        'daily_record_cache': jsonEncode([record.toMap()]),
+      });
+      GoogleDriveService().dbContext.replaceExercises([exercise]);
+      GoogleDriveService().dbContext.replaceDailyRecords([record]);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: TodaysWorkoutLogScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Edit button
+      await tester.tap(find.byTooltip('Edit set'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AddWorkoutSetModal), findsOneWidget);
+      expect(find.text('Update Set'), findsOneWidget);
+
+      // Tap Update Set
+      await tester.tap(find.text('Update Set'));
+      await tester.pumpAndSettle();
+
+      // Modal closed, center confirmation dialog with edit title displayed
+      expect(find.byType(WorkoutActivitySuccessDialog), findsOneWidget);
+      expect(find.text('Workout Set Updated'), findsOneWidget);
+      expect(find.text('OK'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Tap OK
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(WorkoutActivitySuccessDialog), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+    });
+  });
+
+  group('WorkoutActivitySuccessDialog - Component Tests', () {
+    testWidgets('renders dialog in light and dark mode and invokes onDismiss when OK is tapped', (tester) async {
+      bool dismissed = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: WorkoutActivitySuccessDialog(
+              exerciseName: 'Overhead Press',
+              setNumber: 2,
+              weight: 50.0,
+              reps: 8,
+              rir: 1.5,
+              isEdit: false,
+              onDismiss: () {
+                dismissed = true;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Workout Activity Added'), findsOneWidget);
+      expect(find.text('Overhead Press'), findsOneWidget);
+      expect(find.textContaining('Set 2'), findsOneWidget);
+      expect(find.textContaining('50.0 kg × 8 reps'), findsOneWidget);
+      expect(find.textContaining('RIR 1.5'), findsOneWidget);
+      expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+
+      // Tap OK
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(dismissed, isTrue);
+    });
+
+    testWidgets('renders dialog with edit title when isEdit is true', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WorkoutActivitySuccessDialog(
+              exerciseName: 'Pull-up',
+              setNumber: 1,
+              weight: 0.0,
+              reps: 10,
+              rir: 2.0,
+              isEdit: true,
+              onDismiss: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Workout Set Updated'), findsOneWidget);
+      expect(find.text('Pull-up'), findsOneWidget);
+      expect(find.textContaining('10 reps  •  RIR 2.0'), findsOneWidget);
+    });
+
+    testWidgets('renders dialog with delete title when isDelete is true', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WorkoutActivitySuccessDialog(
+              exerciseName: 'Pull-up',
+              setNumber: 1,
+              weight: 0.0,
+              reps: 10,
+              rir: 2.0,
+              isDelete: true,
+              onDismiss: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Workout Activity Deleted'), findsOneWidget);
+      expect(find.text('Pull-up'), findsOneWidget);
+      expect(find.text('OK'), findsOneWidget);
+    });
+  });
+
+  group('WorkoutDeleteConfirmDialog - Component Tests', () {
+    testWidgets('renders delete confirm dialog in light & dark mode and invokes onCancel and onConfirm', (tester) async {
+      bool cancelled = false;
+      bool confirmed = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: WorkoutDeleteConfirmDialog(
+              exerciseName: 'Barbell Squat',
+              setNumber: 3,
+              weight: 120.0,
+              reps: 5,
+              rir: 1.0,
+              onCancel: () {
+                cancelled = true;
+              },
+              onConfirm: () {
+                confirmed = true;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Delete Workout Set?'), findsOneWidget);
+      expect(find.text('Barbell Squat'), findsOneWidget);
+      expect(find.textContaining('Set 3'), findsOneWidget);
+      expect(find.textContaining('120.0 kg × 5 reps'), findsOneWidget);
+      expect(find.textContaining('RIR 1.0'), findsOneWidget);
+      expect(find.byIcon(Icons.delete_outline_rounded), findsOneWidget);
+
+      // Tap Cancel
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+
+      // Tap OK
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(confirmed, isTrue);
+    });
+  });
+
+  group('SyncFailureDialog - Component Tests', () {
+    testWidgets('renders sync failure dialog with Retry and Cancel buttons and invokes callbacks', (tester) async {
+      bool cancelled = false;
+      bool retried = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SyncFailureDialog(
+              onCancel: () {
+                cancelled = true;
+              },
+              onRetry: () {
+                retried = true;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sync Failed'), findsOneWidget);
+      expect(find.byIcon(Icons.sync_problem_rounded), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(cancelled, isTrue);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(retried, isTrue);
+    });
   });
 
   group('TodaysWorkoutLogViewModel - Unit Tests', () {
@@ -418,6 +911,63 @@ void main() {
 
       // Restore Set
       await viewModel.restoreSet(rec1);
+      expect(viewModel.todaysEntries.length, equals(1));
+    });
+
+    test('saveSetAndSync and rollbackAddedSet transactional behavior', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+      expect(viewModel.todaysEntries, isEmpty);
+
+      final rec = DailyRecord(
+        id: 'rec-sync-1',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+
+      final syncResult = await viewModel.saveSetAndSync(rec);
+      expect(syncResult, equals(SyncState.synced));
+      expect(viewModel.todaysEntries.length, equals(1));
+
+      // Rollback
+      await viewModel.rollbackAddedSet(rec);
+      expect(viewModel.todaysEntries, isEmpty);
+    });
+
+    test('deleteSetAndSync and rollbackDeletedSet transactional behavior', () async {
+      final benchPress = Exercise(guid: 'ex-bench', name: 'Bench Press', bodyPart: 'Chest');
+      final rec = DailyRecord(
+        id: 'rec-sync-2',
+        workoutId: benchPress.guid,
+        workoutName: benchPress.name,
+        date: DateTime.now(),
+        set: 1,
+        reps: 10,
+        rir: 2.0,
+        weight: 60.0,
+      );
+      GoogleDriveService().dbContext.replaceExercises([benchPress]);
+      GoogleDriveService().dbContext.replaceDailyRecords([rec]);
+
+      final viewModel = TodaysWorkoutLogViewModel();
+      await viewModel.loadTodaysWorkoutLog();
+      expect(viewModel.todaysEntries.length, equals(1));
+
+      final deleteResult = await viewModel.deleteSetAndSync(viewModel.todaysEntries.first);
+      expect(deleteResult, equals(SyncState.synced));
+      expect(viewModel.todaysEntries, isEmpty);
+
+      // Rollback deletion
+      await viewModel.rollbackDeletedSet(rec);
       expect(viewModel.todaysEntries.length, equals(1));
     });
   });

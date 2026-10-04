@@ -9,6 +9,8 @@ import 'package:workout_tracker/ui/features/workout_log/views/widgets/strength_t
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/theme/app_theme.dart';
+import 'package:workout_tracker/domain/models/exercise.dart';
+import 'package:workout_tracker/ui/features/home/view_models/home_view_model.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -234,6 +236,94 @@ void main() {
       expect(summary.totalSessions, equals(2));
       expect(summary.peakScore, greaterThan(70.0));
       expect(summary.trendPercentage, greaterThan(0));
+    });
+  });
+
+  group('WorkoutDbContext O(1) Indexing & Integrity Tests', () {
+    test('getTodaysWorkoutEntries retrieves records via integer date key index without scanning', () {
+      final context = WorkoutDbContext();
+      final date1 = DateTime(2026, 3, 15, 10, 30);
+      final date2 = DateTime(2026, 3, 16, 11, 0);
+
+      final rec1 = DailyRecord(
+        id: 'rec-1',
+        workoutId: 'ex-1',
+        workoutName: 'Squat',
+        date: date1,
+        set: 1,
+        reps: 8,
+        weight: 100.0,
+        rir: 2.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'rec-2',
+        workoutId: 'ex-2',
+        workoutName: 'Bench Press',
+        date: date2,
+        set: 1,
+        reps: 10,
+        weight: 80.0,
+        rir: 1.5,
+      );
+
+      context.replaceDailyRecords([rec1, rec2]);
+
+      final entriesDate1 = context.getTodaysWorkoutEntries(date1);
+      expect(entriesDate1.length, equals(1));
+      expect(entriesDate1.first.record.workoutId, equals('ex-1'));
+
+      final entriesDate2 = context.getTodaysWorkoutEntries(date2);
+      expect(entriesDate2.length, equals(1));
+      expect(entriesDate2.first.record.workoutId, equals('ex-2'));
+
+      // Test mutation via addDailyRecord updates index
+      final rec3 = DailyRecord(
+        id: 'rec-3',
+        workoutId: 'ex-1',
+        workoutName: 'Squat',
+        date: date1,
+        set: 2,
+        reps: 6,
+        weight: 105.0,
+        rir: 1.0,
+      );
+      context.addDailyRecord(rec3);
+      final updatedDate1 = context.getTodaysWorkoutEntries(date1);
+      expect(updatedDate1.length, equals(2));
+
+      // Test mutation via deleteDailyRecordsWhere
+      context.deleteDailyRecordsWhere((r) => r.id == 'rec-1');
+      final afterDelete = context.getTodaysWorkoutEntries(date1);
+      expect(afterDelete.length, equals(1));
+      expect(afterDelete.first.record.id, equals('rec-3'));
+    });
+
+    test('exercise GUID index maintains quick lookup across replacements', () {
+      final context = WorkoutDbContext();
+      final ex = Exercise(
+        guid: 'guid-abc',
+        name: 'Barbell Bench Press',
+        bodyPart: 'Chest',
+      );
+      context.replaceExercises([ex]);
+      expect(context.readExercises().length, equals(1));
+      expect(context.readExercises().first.guid, equals('guid-abc'));
+    });
+  });
+
+  group('HomeViewModel Unit Tests', () {
+    test('loads dashboard data, active split, today focus, and week streak', () async {
+      SharedPreferences.setMockInitialValues({
+        'split_choice': 'Pull-Push Split',
+        'workout_schedule': '{"Monday":"Push","Tuesday":"Pull"}',
+      });
+      final viewModel = HomeViewModel();
+      await viewModel.loadDashboardData();
+
+      expect(viewModel.activeSplit, equals('Pull-Push Split'));
+      expect(viewModel.isLoading, isFalse);
+      expect(viewModel.weekActivity.length, equals(7));
+      viewModel.dispose();
     });
   });
 }

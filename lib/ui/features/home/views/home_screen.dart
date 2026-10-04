@@ -1,7 +1,4 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/theme/theme_controller.dart';
@@ -12,17 +9,19 @@ import 'package:workout_tracker/ui/features/exercise_info/views/exercise_info_pa
 import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistics_screen.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
 import 'package:workout_tracker/ui/features/workout_split/views/workout_split_page.dart';
-import 'package:workout_tracker/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart';
 import 'package:workout_tracker/ui/features/weekly_activity/views/weekly_activity_section.dart';
+import '../view_models/home_view_model.dart';
 import 'widgets/hero_workout_banner.dart';
 import 'widgets/quick_stat_card.dart';
 
 class HomeScreen extends StatefulWidget {
   final ThemeController? themeController;
+  final HomeViewModel? viewModel;
 
   const HomeScreen({
     super.key,
     this.themeController,
+    this.viewModel,
   });
 
   @override
@@ -30,57 +29,28 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static const _scheduleStorageKey = 'workout_schedule';
-  static const _splitStorageKey = 'split_choice';
-
   final GoogleDriveService _driveService = GoogleDriveService();
-  final WeeklyActivityViewModel _weeklyActivityViewModel = WeeklyActivityViewModel();
-
-  String _todaysWorkout = 'Rest';
-  String _activeSplit = 'Bro Split';
-  bool _isLoading = true;
+  late final HomeViewModel _viewModel;
+  bool _createdOwnViewModel = false;
 
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+    if (widget.viewModel != null) {
+      _viewModel = widget.viewModel!;
+    } else {
+      _viewModel = HomeViewModel();
+      _createdOwnViewModel = true;
+    }
+    _viewModel.loadDashboardData();
   }
 
   @override
   void dispose() {
-    _weeklyActivityViewModel.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadDashboardData() async {
-    final preferences = await SharedPreferences.getInstance();
-    final storedSchedule = preferences.getString(_scheduleStorageKey);
-    final savedSplit = preferences.getString(_splitStorageKey) ?? 'Bro Split';
-    var todaysWorkout = 'Rest';
-
-    if (storedSchedule != null) {
-      try {
-        final decoded = jsonDecode(storedSchedule);
-        if (decoded is Map) {
-          final schedule = decoded.map<String, String>(
-            (key, value) => MapEntry(key.toString(), value.toString()),
-          );
-          // Locale-safe weekday lookup
-          todaysWorkout = schedule[DateFormat('EEEE', 'en_US').format(DateTime.now())] ?? 'Rest';
-        }
-      } on FormatException {
-        todaysWorkout = 'Rest';
-      }
+    if (_createdOwnViewModel) {
+      _viewModel.dispose();
     }
-
-    if (!mounted) return;
-    setState(() {
-      _todaysWorkout = todaysWorkout;
-      _activeSplit = savedSplit;
-      _isLoading = false;
-    });
-
-    await _weeklyActivityViewModel.loadWeeklyActivity();
+    super.dispose();
   }
 
   @override
@@ -94,49 +64,51 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadDashboardData,
-        child: CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.all(16),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  // Hero Workout Banner Card (Tappable to jump right into Today's Workout)
-                  HeroWorkoutBanner(
-                    todaysWorkout: _todaysWorkout,
-                    isLoading: _isLoading,
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const TodaysWorkoutLogScreen(),
-                        ),
-                      ).then((_) => _loadDashboardData());
-                    },
-                  ),
-                  const SizedBox(height: 16),
+      body: ListenableBuilder(
+        listenable: _viewModel,
+        builder: (context, _) => RefreshIndicator(
+          onRefresh: _viewModel.loadDashboardData,
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    // Hero Workout Banner Card (Tappable to jump right into Today's Workout)
+                    HeroWorkoutBanner(
+                      todaysWorkout: _viewModel.todaysWorkout,
+                      isLoading: _viewModel.isLoading,
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const TodaysWorkoutLogScreen(),
+                          ),
+                        ).then((_) => _viewModel.loadDashboardData());
+                      },
+                    ),
+                    const SizedBox(height: 16),
 
-                  // Quick Stats Row with real-time Drive sync status binding
-                  Row(
-                    children: [
-                      Expanded(
-                        child: QuickStatCard(
-                          label: 'Active Split',
-                          value: _activeSplit,
-                          icon: Icons.calendar_view_week_rounded,
-                          color: AppColors.primary,
+                    // Quick Stats Row with real-time Drive sync status binding
+                    Row(
+                      children: [
+                        Expanded(
+                          child: QuickStatCard(
+                            label: 'Active Split',
+                            value: _viewModel.activeSplit,
+                            icon: Icons.calendar_view_week_rounded,
+                            color: AppColors.primary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ValueListenableBuilder<SyncState>(
-                          valueListenable: _driveService.syncStateNotifier,
-                          builder: (context, syncState, child) {
-                            String syncText;
-                            Color syncColor;
-                            IconData syncIcon;
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ValueListenableBuilder<SyncState>(
+                            valueListenable: _driveService.syncStateNotifier,
+                            builder: (context, syncState, child) {
+                              String syncText;
+                              Color syncColor;
+                              IconData syncIcon;
 
                             switch (syncState) {
                               case SyncState.synced:
@@ -167,13 +139,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
 
                   // Weekly Streak Heatmap Card
-                  ListenableBuilder(
-                    listenable: _weeklyActivityViewModel,
-                    builder: (context, _) => WeeklyActivitySection(
-                      weekActivity: _weeklyActivityViewModel.weekActivity,
-                      streakCount: _weeklyActivityViewModel.streakCount,
-                      isLoading: _weeklyActivityViewModel.isLoading,
-                    ),
+                  WeeklyActivitySection(
+                    weekActivity: _viewModel.weekActivity,
+                    streakCount: _viewModel.streakCount,
+                    isLoading: _viewModel.isLoading,
                   ),
                   const SizedBox(height: 24),
 
@@ -194,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         MaterialPageRoute(
                           builder: (_) => const TodaysWorkoutLogScreen(),
                         ),
-                      ).then((_) => _loadDashboardData());
+                      ).then((_) => _viewModel.loadDashboardData());
                     },
                   ),
                   const SizedBox(height: 12),
@@ -229,7 +198,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           builder: (_) => const WorkoutSplitPage(),
                         ),
                       );
-                      _loadDashboardData();
+                      _viewModel.loadDashboardData();
                     },
                   ),
                   const SizedBox(height: 12),
@@ -256,6 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
