@@ -13,6 +13,11 @@ import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/ui/features/home/view_models/home_view_model.dart';
 import 'package:workout_tracker/ui/core/widgets/animated_loading_window.dart';
 import 'package:workout_tracker/ui/features/auth/views/create_sheets_prompt_screen.dart';
+import 'package:workout_tracker/data/services/local_storage_service.dart';
+import 'package:workout_tracker/data/repositories/workout_split_repository_impl.dart';
+import 'package:workout_tracker/domain/use_cases/manage_workout_split_use_case.dart';
+import 'package:workout_tracker/ui/features/workout_split/view_models/workout_split_view_model.dart';
+import 'package:workout_tracker/ui/features/workout_split/views/workout_split_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -609,6 +614,109 @@ void main() {
       expect(projectedTable.length, equals(1));
       expect(projectedTable.first.id, equals('proj-1'));
       expect(projectedTable.first.workoutName, equals('Bicep Curl'));
+    });
+  });
+
+  group('Workout Split Dynamic Target Days & Custom Limiter Tests', () {
+    test('LocalStorageService persists and retrieves split_target_days', () async {
+      final storage = LocalStorageService();
+      expect(await storage.getSplitTargetDays(), isNull);
+
+      await storage.setSplitTargetDays(5);
+      expect(await storage.getSplitTargetDays(), equals(5));
+
+      await storage.setSplitTargetDays(2);
+      expect(await storage.getSplitTargetDays(), equals(2));
+    });
+
+    test('ManageWorkoutSplitUseCase validates against dynamic maxDays', () async {
+      final storage = LocalStorageService();
+      final repo = WorkoutSplitRepositoryImpl(storageService: storage);
+      final useCase = ManageWorkoutSplitUseCase(splitRepository: repo);
+
+      final currentSchedule = {
+        'Monday': 'Push',
+        'Tuesday': 'Pull',
+        'Wednesday': 'Push',
+        'Thursday': 'Pull',
+      };
+
+      // With maxDays = 4, assigning a 5th day fails
+      final canAdd5th = useCase.canAssignWorkoutDay(
+        maxDays: 4,
+        currentSchedule: currentSchedule,
+        targetDay: 'Friday',
+        targetValue: 'Push',
+      );
+      expect(canAdd5th, isFalse);
+
+      // With maxDays = 5, assigning a 5th day succeeds
+      final canAddWith5Limit = useCase.canAssignWorkoutDay(
+        maxDays: 5,
+        currentSchedule: currentSchedule,
+        targetDay: 'Friday',
+        targetValue: 'Push',
+      );
+      expect(canAddWith5Limit, isTrue);
+
+      // Editing an existing day always succeeds
+      final canEditExisting = useCase.canAssignWorkoutDay(
+        maxDays: 4,
+        currentSchedule: currentSchedule,
+        targetDay: 'Monday',
+        targetValue: 'Pull',
+      );
+      expect(canEditExisting, isTrue);
+
+      // Setting Rest always succeeds
+      final canSetRest = useCase.canAssignWorkoutDay(
+        maxDays: 4,
+        currentSchedule: currentSchedule,
+        targetDay: 'Friday',
+        targetValue: 'Rest',
+      );
+      expect(canSetRest, isTrue);
+    });
+
+    test('WorkoutSplitViewModel loads, saves, and evaluates target days', () async {
+      final storage = LocalStorageService();
+      final repo = WorkoutSplitRepositoryImpl(storageService: storage);
+      final useCase = ManageWorkoutSplitUseCase(splitRepository: repo);
+      final viewModel = WorkoutSplitViewModel(splitUseCase: useCase);
+
+      await viewModel.selectSplit('Anterior-Posterior Split', 5);
+      expect(viewModel.selectedSplit, equals('Anterior-Posterior Split'));
+      expect(viewModel.targetDays, equals(5));
+      expect(await storage.getSplitTargetDays(), equals(5));
+
+      await viewModel.saveTargetDays(6);
+      expect(viewModel.targetDays, equals(6));
+      expect(await storage.getSplitTargetDays(), equals(6));
+    });
+
+    testWidgets('WorkoutSplitPage prompts for days and navigates with chosen target', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: WorkoutSplitPage()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Pull-Push Split'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('How many days are you working out?'), findsOneWidget);
+      expect(find.text('Select your weekly workout target for Pull-Push Split (1 to 7 days per week):'), findsOneWidget);
+
+      await tester.tap(find.text('3 Days'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pull-Push Split Schedule'), findsOneWidget);
+      expect(find.text('Weekly Target: 3 Days'), findsOneWidget);
+
+      final storage = LocalStorageService();
+      expect(await storage.getSplitTargetDays(), equals(3));
+      expect(await storage.getSelectedSplit(), equals('Pull-Push Split'));
     });
   });
 }

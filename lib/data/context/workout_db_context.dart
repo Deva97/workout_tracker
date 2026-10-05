@@ -1,6 +1,7 @@
 import '../../domain/models/daily_record.dart';
 import '../../domain/models/daily_workout_entry.dart';
 import '../../domain/models/exercise.dart';
+import '../../domain/models/weight_record.dart';
 import '../orm/excel_context.dart';
 import '../orm/excel_query.dart';
 import '../orm/excel_table.dart';
@@ -479,5 +480,14 @@ class WorkoutDbContext extends ExcelContext {
       mapper: DailyRecord.excelMapper,
     );
     return saveTableToBytes<DailyRecord>(emptyTable);
+  }
+
+  /// Create default initial empty [Body_weight.xlsx] file bytes.
+  List<int> createDefaultBodyWeightBytes() {
+    final emptyTable = ExcelTable<WeightRecord>(
+      sheetName: 'Sheet1',
+      mapper: WeightRecord.excelMapper,
+    );
+    return saveTableToBytes<WeightRecord>(emptyTable);
   }
 }

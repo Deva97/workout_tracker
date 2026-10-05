@@ -10,8 +10,10 @@ import '../context/workout_db_context.dart';
 import '../../domain/models/daily_record.dart';
 import '../../domain/models/daily_workout_entry.dart';
 import '../../domain/models/exercise.dart';
+import '../../domain/models/weight_record.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../orm/excel_query.dart';
+import '../orm/excel_table.dart';
 
 export '../../domain/repositories/auth_repository.dart' show SyncState, DriveSheetsStatus;
 
@@ -25,13 +27,16 @@ class GoogleDriveService {
   static const String _cacheKey = 'exercise_cache';
   static const String _dailyRecordCacheKey = 'daily_record_cache';
   static const String _weeklyActivityCacheKey = 'weekly_activity_cache';
+  static const String _bodyWeightCacheKey = 'body_weight_cache';
   static const String _folderNameKey = 'workout_folder_id';
   static const String _fileIdKey = 'exercise_file_id';
   static const String _dailyRecordFileIdKey = 'daily_record_file_id';
+  static const String _bodyWeightFileIdKey = 'body_weight_file_id';
   
   static const String _folderName = 'Workout Tracker';
   static const String _exerciseDbFileName = 'Exercise_DB.xlsx';
   static const String _dailyRecordFileName = 'Daily_record.xlsx';
+  static const String _bodyWeightFileName = 'Body_weight.xlsx';
 
   // Optional: Set Client ID here if needed
   static const String? _clientId = null;
@@ -260,6 +265,167 @@ class GoogleDriveService {
     );
 
     return response.id!;
+  }
+
+  /// Check whether Body_weight.xlsx exists in Google Drive
+  Future<bool> checkBodyWeightSheetExists() async {
+    await ensureDriveApiReady();
+    if (_driveApi == null) return false;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedId = prefs.getString(_bodyWeightFileIdKey);
+      if (cachedId != null) {
+        try {
+          final file = await _driveApi!.files.get(cachedId) as drive.File;
+          if (file.trashed != true) return true;
+        } catch (_) {
+          await prefs.remove(_bodyWeightFileIdKey);
+        }
+      }
+
+      final folderId = await _getOrCreateFolder();
+      final query = "name='$_bodyWeightFileName' and '$folderId' in parents and trashed=false";
+      final list = await _driveApi!.files.list(q: query, spaces: 'drive', pageSize: 5);
+      if (list.files != null && list.files!.isNotEmpty) {
+        await prefs.setString(_bodyWeightFileIdKey, list.files!.first.id!);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error checking Body_weight.xlsx existence: $e');
+      return false;
+    }
+  }
+
+  /// Create Body_weight.xlsx with schema headers in Google Drive
+  Future<String> createBodyWeightExcelFile() async {
+    await ensureDriveApiReady();
+    if (_driveApi == null) {
+      throw Exception('Google Drive API not initialized.');
+    }
+
+    final folderId = await _getOrCreateFolder();
+    final bytes = dbContext.createDefaultBodyWeightBytes();
+
+    final driveFile = drive.File()
+      ..name = _bodyWeightFileName
+      ..parents = [folderId];
+
+    final response = await _driveApi!.files.create(
+      driveFile,
+      uploadMedia: drive.Media(Stream.value(bytes), bytes.length),
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_bodyWeightFileIdKey, response.id!);
+    return response.id!;
+  }
+
+  /// Download and load WeightRecord rows from Google Drive
+  Future<List<WeightRecord>> loadWeightRecordsFromDrive() async {
+    await ensureDriveApiReady();
+    if (_driveApi == null) return [];
+
+    syncStateNotifier.value = SyncState.syncing;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      var fileId = prefs.getString(_bodyWeightFileIdKey);
+
+      if (fileId == null) {
+        final folderId = await _getOrCreateFolder();
+        final query = "name='$_bodyWeightFileName' and '$folderId' in parents and trashed=false";
+        final list = await _driveApi!.files.list(q: query, spaces: 'drive', pageSize: 5);
+        if (list.files != null && list.files!.isNotEmpty) {
+          fileId = list.files!.first.id!;
+          await prefs.setString(_bodyWeightFileIdKey, fileId);
+        } else {
+          syncStateNotifier.value = SyncState.synced;
+          return [];
+        }
+      }
+
+      final media = await _driveApi!.files.get(
+        fileId,
+        downloadOptions: drive.DownloadOptions.fullMedia,
+      ) as drive.Media;
+
+      final bytes = await media.stream.fold<List<int>>([], (prev, element) => prev..addAll(element));
+      final table = dbContext.loadTableFromBytes<WeightRecord>(
+        bytes: bytes,
+        mapper: WeightRecord.excelMapper,
+      );
+
+      final records = table.toList();
+      // Cache locally
+      final encoded = jsonEncode(records.map((r) => r.toJson()).toList());
+      await prefs.setString(_bodyWeightCacheKey, encoded);
+
+      syncStateNotifier.value = SyncState.synced;
+      return records;
+    } catch (e) {
+      debugPrint('Error loading Body_weight.xlsx from Drive: $e');
+      syncStateNotifier.value = SyncState.error;
+      // Fallback to local cache
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(_bodyWeightCacheKey);
+      if (cached != null) {
+        try {
+          final decoded = jsonDecode(cached) as List;
+          return decoded.map((i) => WeightRecord.fromJson(i as Map<String, dynamic>)).toList();
+        } catch (_) {}
+      }
+      return [];
+    }
+  }
+
+  /// Upload weight records to Body_weight.xlsx in Google Drive
+  Future<void> syncWeightRecordsToDrive(List<WeightRecord> records) async {
+    await ensureDriveApiReady();
+    if (_driveApi == null) return;
+
+    syncStateNotifier.value = SyncState.syncing;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      var fileId = prefs.getString(_bodyWeightFileIdKey);
+
+      if (fileId == null) {
+        final folderId = await _getOrCreateFolder();
+        final query = "name='$_bodyWeightFileName' and '$folderId' in parents and trashed=false";
+        final list = await _driveApi!.files.list(q: query, spaces: 'drive', pageSize: 5);
+        if (list.files != null && list.files!.isNotEmpty) {
+          fileId = list.files!.first.id!;
+          await prefs.setString(_bodyWeightFileIdKey, fileId);
+        } else {
+          fileId = await createBodyWeightExcelFile();
+        }
+      }
+
+      final table = ExcelTable<WeightRecord>(
+        sheetName: 'Sheet1',
+        mapper: WeightRecord.excelMapper,
+      );
+      for (final r in records) {
+        table.add(r);
+      }
+
+      final bytes = dbContext.saveTableToBytes<WeightRecord>(table);
+      await _driveApi!.files.update(
+        drive.File(),
+        fileId,
+        uploadMedia: drive.Media(Stream.value(bytes), bytes.length),
+      );
+
+      // Update cache
+      final encoded = jsonEncode(records.map((r) => r.toJson()).toList());
+      await prefs.setString(_bodyWeightCacheKey, encoded);
+
+      syncStateNotifier.value = SyncState.synced;
+    } catch (e) {
+      debugPrint('Error syncing Body_weight.xlsx to Drive: $e');
+      syncStateNotifier.value = SyncState.error;
+      rethrow;
+    }
   }
 
   /// Download and sync only Exercise_DB.xlsx from Google Drive using ExcelORM

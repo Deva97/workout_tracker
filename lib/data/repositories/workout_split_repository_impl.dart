@@ -19,6 +19,16 @@ class WorkoutSplitRepositoryImpl implements WorkoutSplitRepository {
   }
 
   @override
+  Future<int?> getSplitTargetDays() {
+    return _storageService.getSplitTargetDays();
+  }
+
+  @override
+  Future<void> saveSplitTargetDays(int days) {
+    return _storageService.setSplitTargetDays(days);
+  }
+
+  @override
   Future<Map<String, String>> getWeeklySchedule() {
     return _storageService.getWeeklySchedule();
   }

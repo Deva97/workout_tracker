@@ -47,6 +47,12 @@ void main() {
     await tester.tap(find.text('Bro Split'));
     await tester.pumpAndSettle();
 
+    expect(find.text('How many days are you working out?'), findsOneWidget);
+    await tester.tap(find.text('5 Days'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Monday'), findsOneWidget);
     await tester.drag(find.byType(ListView).last, const Offset(0, -500));
     await tester.pumpAndSettle();
@@ -54,6 +60,7 @@ void main() {
 
     final preferences = await SharedPreferences.getInstance();
     expect(preferences.getString('split_choice'), 'Bro Split');
+    expect(preferences.getInt('split_target_days'), 5);
   });
 
   testWidgets('Bro Split shows muscle choices and saves a day assignment',
@@ -132,6 +139,67 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Target: Back'), findsOneWidget);
-    expect(find.text('Rest Day'), findsAtLeastNWidgets(5));
+    expect(find.text('Rest Day'), findsAtLeastNWidgets(4));
+  });
+
+  testWidgets('Anterior-Posterior Split allows up to 5 days when user targets 5 days', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: WorkoutSchedulePage(
+          split: 'Anterior-Posterior Split',
+          initialTargetDays: 5,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekly Target: 5 Days'), findsOneWidget);
+
+    // Assign 5 active days (Monday through Friday)
+    for (final day in ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']) {
+      await tester.tap(find.text(day));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anterior').last);
+      await tester.pumpAndSettle();
+    }
+
+    // Attempting Saturday (6th day) must be capped at 5 days
+    await tester.drag(find.byType(ListView), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Saturday'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Maximum of 5 workout days reached for Anterior-Posterior Split.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('User can edit target days in WorkoutSchedulePage dynamically', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: WorkoutSchedulePage(
+          split: 'Full Body Split',
+          initialTargetDays: 2,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekly Target: 2 Days'), findsOneWidget);
+
+    // Tap "Edit" on the header card
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Change Weekly Target'), findsOneWidget);
+    await tester.tap(find.text('4 Days'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save Target'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Weekly Target: 4 Days'), findsOneWidget);
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getInt('split_target_days'), 4);
   });
 }

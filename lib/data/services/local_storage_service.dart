@@ -1,14 +1,19 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../domain/models/weight_record.dart';
+
 class LocalStorageService {
   static const String keyExerciseCache = 'exercise_cache';
   static const String keyDailyRecordCache = 'daily_record_cache';
+  static const String keyBodyWeightCache = 'body_weight_cache';
   static const String keyWorkoutFolderId = 'workout_folder_id';
   static const String keyExerciseFileId = 'exercise_file_id';
   static const String keyDailyRecordFileId = 'daily_record_file_id';
+  static const String keyBodyWeightFileId = 'body_weight_file_id';
   static const String keyWorkoutSchedule = 'workout_schedule';
   static const String keySplitChoice = 'split_choice';
+  static const String keySplitTargetDays = 'split_target_days';
   static const String keyThemeMode = 'theme_mode';
 
   Future<SharedPreferences> get _prefs => SharedPreferences.getInstance();
@@ -38,6 +43,16 @@ class LocalStorageService {
     await setString(keySplitChoice, split);
   }
 
+  Future<int?> getSplitTargetDays() async {
+    final prefs = await _prefs;
+    return prefs.getInt(keySplitTargetDays);
+  }
+
+  Future<void> setSplitTargetDays(int days) async {
+    final prefs = await _prefs;
+    await prefs.setInt(keySplitTargetDays, days);
+  }
+
   Future<Map<String, String>> getWorkoutSchedule() async {
     final raw = await getString(keyWorkoutSchedule);
     if (raw == null) return {};
@@ -64,4 +79,28 @@ class LocalStorageService {
   Future<String?> getThemeMode() => getString(keyThemeMode);
 
   Future<void> setThemeMode(String themeMode) => setString(keyThemeMode, themeMode);
+
+  // Body weight specific helpers
+  Future<String?> getBodyWeightFileId() => getString(keyBodyWeightFileId);
+
+  Future<void> setBodyWeightFileId(String id) => setString(keyBodyWeightFileId, id);
+
+  Future<List<WeightRecord>> getCachedWeightRecords() async {
+    final raw = await getString(keyBodyWeightCache);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded
+            .map((item) => WeightRecord.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<void> setCachedWeightRecords(List<WeightRecord> records) async {
+    final encoded = jsonEncode(records.map((r) => r.toJson()).toList());
+    await setString(keyBodyWeightCache, encoded);
+  }
 }

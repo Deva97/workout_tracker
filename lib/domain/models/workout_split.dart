@@ -52,7 +52,23 @@ class WorkoutSplit {
     }
   }
 
-  /// Get maximum allowed workout days per week for a given split
+  /// Default suggested workout days per week for a given split
+  static int getDefaultTargetDays(String split) {
+    switch (split) {
+      case pullPushSplit:
+        return 4;
+      case anteriorPosteriorSplit:
+        return 4;
+      case fullBodySplit:
+        return 3;
+      case broSplit:
+      default:
+        return 5;
+    }
+  }
+
+  /// Legacy maximum allowed workout days per week.
+  /// Note: Splits now support dynamic user-selected workout days (1 to 7).
   static int? getMaximumWorkoutDays(String split) {
     switch (split) {
       case pullPushSplit:
@@ -62,7 +78,7 @@ class WorkoutSplit {
       case fullBodySplit:
         return 3;
       default:
-        return null; // Unlimited for Bro Split
+        return null;
     }
   }
 }

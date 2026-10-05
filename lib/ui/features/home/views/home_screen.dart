@@ -11,6 +11,7 @@ import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistic
 import 'package:workout_tracker/ui/features/workout_log/views/todays_workout_log_screen.dart';
 import 'package:workout_tracker/ui/features/workout_split/views/workout_split_page.dart';
 import 'package:workout_tracker/ui/features/weekly_activity/views/weekly_activity_section.dart';
+import '../../weight_tracking/views/weight_tracking_screen.dart';
 import '../view_models/home_view_model.dart';
 import 'widgets/hero_workout_banner.dart';
 import 'widgets/quick_stat_card.dart';
@@ -165,6 +166,23 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         MaterialPageRoute(
                           builder: (_) => const TodaysWorkoutLogScreen(),
+                        ),
+                      ).then((_) => _viewModel.loadDashboardData());
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  ModularCard(
+                    title: "Body Weight & Trends",
+                    subtitle: "Log scale photo and view everyday & weekly average graphs",
+                    icon: Icons.monitor_weight_rounded,
+                    iconColor: AppColors.primary,
+                    iconBackgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const WeightTrackingScreen(),
                         ),
                       ).then((_) => _viewModel.loadDashboardData());
                     },
