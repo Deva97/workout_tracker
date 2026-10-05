@@ -11,6 +11,8 @@ import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/theme/app_theme.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/ui/features/home/view_models/home_view_model.dart';
+import 'package:workout_tracker/ui/core/widgets/animated_loading_window.dart';
+import 'package:workout_tracker/ui/features/auth/views/create_sheets_prompt_screen.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -324,6 +326,289 @@ void main() {
       expect(viewModel.isLoading, isFalse);
       expect(viewModel.weekActivity.length, equals(7));
       viewModel.dispose();
+    });
+  });
+
+  group('Loader Page Messages Tests', () {
+    testWidgets('AnimatedLoadingWindow renders message and subMessage without exposing .xlsx filenames', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AnimatedLoadingWindow(
+            message: 'Validating Google Drive...',
+            subMessage: 'Checking workout database',
+          ),
+        ),
+      );
+
+      expect(find.text('Validating Google Drive...'), findsOneWidget);
+      expect(find.text('Checking workout database'), findsOneWidget);
+      expect(find.textContaining('.xlsx'), findsNothing);
+      expect(find.textContaining('Exercise_DB'), findsNothing);
+      expect(find.textContaining('Daily_record'), findsNothing);
+    });
+
+    testWidgets('CreateSheetsPromptScreen displays clean setup copy', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CreateSheetsPromptScreen(
+            status: DriveSheetsStatus(
+              exerciseDbExists: false,
+              dailyRecordExists: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Excel Database Setup Required'), findsOneWidget);
+    });
+  });
+
+  group('RDBMS Performance Architecture & Excel ORM Optimization Tests', () {
+    test('Secondary Indexing: O(1) PK and FK lookups', () {
+      final context = WorkoutDbContext();
+      final now = DateTime.now();
+
+      final rec1 = DailyRecord(
+        id: 'pk-1',
+        workoutId: 'bench-press',
+        workoutName: 'Bench Press',
+        date: now.subtract(const Duration(days: 2)),
+        set: 1,
+        reps: 10,
+        weight: 80.0,
+        rir: 2.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'pk-2',
+        workoutId: 'squat',
+        workoutName: 'Squat',
+        date: now.subtract(const Duration(days: 1)),
+        set: 1,
+        reps: 8,
+        weight: 120.0,
+        rir: 1.5,
+      );
+      final rec3 = DailyRecord(
+        id: 'pk-3',
+        workoutId: 'bench-press',
+        workoutName: 'Bench Press',
+        date: now,
+        set: 1,
+        reps: 12,
+        weight: 82.5,
+        rir: 1.0,
+      );
+
+      context.addDailyRecord(rec1);
+      context.addDailyRecord(rec2);
+      context.addDailyRecord(rec3);
+
+      // Primary Key O(1) point lookup
+      expect(context.getDailyRecordById('pk-1')?.workoutName, equals('Bench Press'));
+      expect(context.getDailyRecordById('pk-2')?.workoutName, equals('Squat'));
+      expect(context.getDailyRecordById('pk-nonexistent'), isNull);
+
+      // Foreign Key O(1) bucket lookup
+      final benchSets = context.getRecordsForExercise('bench-press');
+      expect(benchSets.length, equals(2));
+      expect(benchSets.map((r) => r.id), containsAll(['pk-1', 'pk-3']));
+
+      final squatSets = context.getRecordsForExercise('squat');
+      expect(squatSets.length, equals(1));
+      expect(squatSets.first.id, equals('pk-2'));
+    });
+
+    test('Clustered Indexing & Binary Search Range Pruning: O(log N) date filtering', () {
+      final context = WorkoutDbContext();
+      final baseDate = DateTime(2026, 1, 1);
+
+      final records = List.generate(
+        100,
+        (i) => DailyRecord(
+          id: 'rec-$i',
+          workoutId: 'deadlift',
+          workoutName: 'Deadlift',
+          date: baseDate.add(Duration(days: i)),
+          set: 1,
+          reps: 5,
+          weight: 100.0 + i,
+          rir: 2.0,
+        ),
+      );
+
+      context.replaceDailyRecords(records);
+
+      // Verify binary search lower bound correctly identifies cutoff
+      final cutoff = baseDate.add(const Duration(days: 70));
+      final cutoffIndex = WorkoutDbContext.binarySearchLowerBound(records, cutoff);
+      expect(cutoffIndex, equals(70));
+
+      // Query since day 70 -> should return 30 records (indices 70 to 99) in O(log N)
+      final recentDeadlifts = context.getRecordsForExercise('deadlift', since: cutoff);
+      expect(recentDeadlifts.length, equals(30));
+      expect(recentDeadlifts.first.id, equals('rec-70'));
+      expect(recentDeadlifts.last.id, equals('rec-99'));
+    });
+
+    test('Write-Ahead Logging (WAL) & Mutation Journal with Rollback', () {
+      final context = WorkoutDbContext();
+      final now = DateTime.now();
+
+      final rec = DailyRecord(
+        id: 'wal-1',
+        workoutId: 'pullup',
+        workoutName: 'Pull-up',
+        date: now,
+        set: 1,
+        reps: 10,
+        weight: 0.0,
+        rir: 2.0,
+      );
+
+      // 1. Add mutation journaled
+      context.addDailyRecord(rec);
+      expect(context.mutationJournal.length, equals(1));
+      expect(context.mutationJournal.last.type, equals(DbMutationType.add));
+      expect(context.getDailyRecordById('wal-1'), isNotNull);
+
+      // 2. Rollback addition
+      final rolledBack = context.rollbackLastMutation();
+      expect(rolledBack, isTrue);
+      expect(context.getDailyRecordById('wal-1'), isNull);
+      expect(context.getRecordsForExercise('pullup'), isEmpty);
+
+      // 3. Update mutation journaled
+      context.addDailyRecord(rec);
+      final updatedRec = rec.copyWith(reps: 15, weight: 10.0);
+      context.updateDailyRecord(updatedRec, (r) => r.id == rec.id);
+      expect(context.getDailyRecordById('wal-1')?.reps, equals(15));
+
+      // Rollback update restores previous values
+      context.rollbackLastMutation();
+      expect(context.getDailyRecordById('wal-1')?.reps, equals(10));
+      expect(context.getDailyRecordById('wal-1')?.weight, equals(0.0));
+    });
+
+    test('Soft Deletes & Tombstones: O(1) deletion and batch vacuuming', () {
+      final context = WorkoutDbContext();
+      final now = DateTime.now();
+
+      final rec1 = DailyRecord(
+        id: 'tomb-1',
+        workoutId: 'dip',
+        workoutName: 'Dips',
+        date: now,
+        set: 1,
+        reps: 12,
+        weight: 0.0,
+        rir: 2.0,
+      );
+      final rec2 = DailyRecord(
+        id: 'tomb-2',
+        workoutId: 'dip',
+        workoutName: 'Dips',
+        date: now,
+        set: 2,
+        reps: 10,
+        weight: 0.0,
+        rir: 1.0,
+      );
+
+      context.addDailyRecord(rec1);
+      context.addDailyRecord(rec2);
+
+      // Soft delete in O(1)
+      final deleted = context.deleteDailyRecordById('tomb-1', soft: true);
+      expect(deleted, isTrue);
+
+      // Lookup immediately omits tombstoned record
+      expect(context.getDailyRecordById('tomb-1'), isNull);
+      expect(context.getRecordsForExercise('dip').length, equals(1));
+      expect(context.getRecordsForExercise('dip').first.id, equals('tomb-2'));
+
+      // Vacuum removes tombstone physically
+      final vacuumedCount = context.vacuumDailyRecords();
+      expect(vacuumedCount, equals(1));
+      expect(context.readDailyRecords().length, equals(1));
+      expect(context.readDailyRecords().first.id, equals('tomb-2'));
+    });
+
+    test('Table Partitioning: multi-sheet partitioned encoding and decoding', () {
+      final context = WorkoutDbContext();
+
+      final rec2025 = DailyRecord(
+        id: 'part-2025',
+        workoutId: 'press',
+        workoutName: 'Overhead Press',
+        date: DateTime(2025, 6, 15),
+        set: 1,
+        reps: 8,
+        weight: 50.0,
+        rir: 2.0,
+      );
+      final rec2026 = DailyRecord(
+        id: 'part-2026',
+        workoutId: 'press',
+        workoutName: 'Overhead Press',
+        date: DateTime(2026, 3, 10),
+        set: 1,
+        reps: 10,
+        weight: 55.0,
+        rir: 1.5,
+      );
+
+      context.replaceDailyRecords([rec2025, rec2026]);
+
+      // Save partitioned tables
+      final partitionedBytes = context.savePartitionedDailyRecordToBytes();
+      expect(partitionedBytes, isNotEmpty);
+
+      // Load partitioned tables into a fresh context
+      final freshContext = WorkoutDbContext();
+      freshContext.loadPartitionedDailyRecordsFromBytes(partitionedBytes);
+
+      expect(freshContext.readDailyRecords().length, equals(2));
+      expect(freshContext.getDailyRecordById('part-2025'), isNotNull);
+      expect(freshContext.getDailyRecordById('part-2026'), isNotNull);
+
+      // Load with since cutoff to only include 2026
+      final recentOnlyContext = WorkoutDbContext();
+      recentOnlyContext.loadPartitionedDailyRecordsFromBytes(
+        partitionedBytes,
+        since: DateTime(2026, 1, 1),
+      );
+      expect(recentOnlyContext.readDailyRecords().length, equals(1));
+      expect(recentOnlyContext.readDailyRecords().first.id, equals('part-2026'));
+    });
+
+    test('Column Projection: selective cell extraction during decoding', () {
+      final context = WorkoutDbContext();
+      final now = DateTime.now();
+
+      final rec = DailyRecord(
+        id: 'proj-1',
+        workoutId: 'curl',
+        workoutName: 'Bicep Curl',
+        date: now,
+        set: 1,
+        reps: 12,
+        weight: 15.0,
+        rir: 1.0,
+      );
+
+      context.replaceDailyRecords([rec]);
+      final bytes = context.saveDailyRecordToBytes();
+
+      // Decode with column projection
+      final projectedTable = context.loadTableFromBytes<DailyRecord>(
+        bytes: bytes,
+        mapper: DailyRecord.excelMapper,
+        projectedColumns: {'ID', 'workout_ID', 'workout_name', 'Date', 'set', 'reps', 'RIR', 'weight'},
+      );
+
+      expect(projectedTable.length, equals(1));
+      expect(projectedTable.first.id, equals('proj-1'));
+      expect(projectedTable.first.workoutName, equals('Bicep Curl'));
     });
   });
 }

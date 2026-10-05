@@ -51,19 +51,19 @@ This domain model formalizes resistance training methodologies into structured, 
 
 ## Code Model References
 - **Domain Models**:
-  - `lib/domain/models/workout_split.dart`
+  - [`workout_split.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/workout_split.dart)
     - **Class**: `WorkoutSplit`
     - **Key Properties**: `broSplit`, `pullPushSplit`, `anteriorPosteriorSplit`, `fullBodySplit`, `weekdays`
-  - `lib/domain/models/exercise.dart`
+  - [`exercise.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/exercise.dart)
     - **Class**: `Exercise`
     - **Key Properties**: `guid`, `name`, `bodyPart`
-  - `lib/domain/models/daily_record.dart`
+  - [`daily_record.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/daily_record.dart)
     - **Class**: `DailyRecord`
     - **Key Properties**: `id`, `workoutId`, `workoutName`, `date`, `set`, `reps`, `rir`, `weight`
-  - `lib/domain/models/daily_workout_entry.dart`
+  - [`daily_workout_entry.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/daily_workout_entry.dart)
     - **Class**: `DailyWorkoutEntry`
     - **Key Properties**: `record`, `exercise`
 - **Associated Tests**:
-  - `test/widget_test.dart`: Validates split selection and schedule assignment.
-  - `test/todays_workout_log_test.dart`: Validates set logging, modal validation, relational joins, and PR badges.
-  - `test/excel_orm_test.dart`: Validates serialization of sets into Excel tables.
+  - [`widget_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/widget_test.dart): Validates split selection and schedule assignment.
+  - [`todays_workout_log_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart): Validates set logging, modal validation, relational joins, and PR badges.
+  - [`excel_orm_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/excel_orm_test.dart): Validates serialization of sets into Excel tables.

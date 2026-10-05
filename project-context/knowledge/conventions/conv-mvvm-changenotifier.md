@@ -91,6 +91,6 @@ Future<void> badLoadMethod() async {
 
 ## Source Code & Test Citations
 - **Reference Code**:
-  - `lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart` (Lines 76–116)
+  - [`todays_workout_log_view_model.dart:L76–116`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart#L76-L116)
 - **Verifying Test**:
-  - `test/todays_workout_log_test.dart` (Lines 309–360): Unit tests asserting that `TodaysWorkoutLogViewModel` updates state, calculates PRs, and notifies listeners across save, edit, delete, and restore actions.
+  - [`todays_workout_log_test.dart:L309–360`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart#L309-L360): Unit tests asserting that `TodaysWorkoutLogViewModel` updates state, calculates PRs, and notifies listeners across save, edit, delete, and restore actions.

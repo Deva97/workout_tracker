@@ -24,9 +24,11 @@ class EmptyStateWidget extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          mainAxisSize: MainAxisSize.min,
+        child: SingleChildScrollView(
+          physics: const ClampingScrollPhysics(),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
           children: [
             Container(
               padding: const EdgeInsets.all(22),
@@ -87,6 +89,7 @@ class EmptyStateWidget extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 }

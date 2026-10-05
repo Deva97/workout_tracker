@@ -45,8 +45,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // Step 2: Check Google Drive Excel Database Sheets
     setState(() {
-      _message = 'Validating Google Drive Databases...';
-      _subMessage = 'Searching for Exercise_DB.xlsx & Daily_record.xlsx';
+      _message = 'Validating Google Drive...';
+      _subMessage = 'Checking workout database';
     });
 
     try {

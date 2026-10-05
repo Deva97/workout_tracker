@@ -71,8 +71,8 @@ class BadWorkoutLogWidget extends StatelessWidget {
 
 ## Source Code & Test Citations
 - **Reference Code**:
-  - `lib/domain/repositories/workout_repository.dart` (Lines 1–20)
-  - `lib/data/repositories/workout_repository_impl.dart` (Lines 1–80)
-  - `lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart` (Lines 14–45)
+  - [`workout_repository.dart:L1–20`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/repositories/workout_repository.dart#L1-L20)
+  - [`workout_repository_impl.dart:L1–80`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/repositories/workout_repository_impl.dart#L1-L80)
+  - [`todays_workout_log_view_model.dart:L14–45`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart#L14-L45)
 - **Verifying Test**:
-  - `test/todays_workout_log_test.dart` (Lines 14–25): Demonstrates hermetic testing where repository and context are cleanly configured in `setUp()` without external Drive API connections.
+  - [`todays_workout_log_test.dart:L14–25`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart#L14-L25): Demonstrates hermetic testing where repository and context are cleanly configured in `setUp()` without external Drive API connections.

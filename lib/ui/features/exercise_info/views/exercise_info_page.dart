@@ -4,6 +4,7 @@ import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/exercise_statistics_screen.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
 import 'package:workout_tracker/ui/core/widgets/filter_chip_bar.dart';
 import 'package:workout_tracker/ui/core/widgets/search_bar_input.dart';
@@ -279,6 +280,16 @@ class _ExerciseInfoPageState extends State<ExerciseInfoPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Exercise Directory', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 14),
+            child: Center(
+              child: CompactSyncButton(
+                onPressed: _checkAuthAndLoadExercises,
+              ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openAddExerciseModal,

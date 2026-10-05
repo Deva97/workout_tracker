@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:workout_tracker/domain/models/daily_record.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
 import '../view_models/exercise_statistics_view_model.dart';
@@ -64,6 +65,14 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Exercise Statistics', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 14),
+            child: Center(
+              child: CompactSyncButton(),
+            ),
+          ),
+        ],
       ),
       body: _viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())

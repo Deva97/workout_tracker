@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:workout_tracker/data/services/google_drive_service.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
 import 'package:workout_tracker/ui/core/theme/theme_controller.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/section_header.dart';
 import 'package:workout_tracker/ui/core/widgets/theme_switch_button.dart';
@@ -60,6 +61,8 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Workout Tracker', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
         elevation: 0,
         actions: [
+          const Center(child: CompactSyncButton()),
+          const SizedBox(width: 8),
           ThemeSwitchButton(controller: widget.themeController),
           const SizedBox(width: 8),
         ],

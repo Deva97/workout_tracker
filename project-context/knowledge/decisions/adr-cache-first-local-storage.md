@@ -66,8 +66,8 @@ Gym workout tracking demands immediate tactile responsiveness. A trainee logging
 ---
 
 ## Source Code & Test Traceability
-- **Implementation Core**: `lib/data/services/local_storage_service.dart` (Lines 4–60)
-- **ViewModel Integration**: `lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart` (Lines 76–88)
+- **Implementation Core**: [`local_storage_service.dart:L4–60`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/local_storage_service.dart#L4-L60)
+- **ViewModel Integration**: [`todays_workout_log_view_model.dart:L76–88`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart#L76-L88)
 - **Automated Regression Test**:
-  - `test/widget_test.dart` (Lines 123–136, test name: `'restores saved weekly assignments'`)
-  - `test/todays_workout_log_test.dart` (Lines 293–299): Verifies cache hydration in widget test harness.
+  - [`widget_test.dart:L123–136-test name: `'restores saved weekly assignments'``](file:///Users/devashishraut/StudioProjects/workout_tracker/test/widget_test.dart#L123-L136)
+  - [`todays_workout_log_test.dart:L293–299`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart#L293-L299): Verifies cache hydration in widget test harness.

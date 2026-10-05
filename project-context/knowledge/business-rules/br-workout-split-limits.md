@@ -45,15 +45,15 @@ Resistance training programs require structured rest periods to allow neuromuscu
 ---
 
 ## Source Code Citations
-- **File**: `lib/domain/models/workout_split.dart`
+- **File**: [`workout_split.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/workout_split.dart)
   - **Lines**: 56–67
   - **Function / Class**: `WorkoutSplit.getMaximumWorkoutDays(String split)`
   - **Role**: Returns the maximum allowed workout days for each split string (`4`, `4`, `3`, or `null`).
-- **File**: `lib/domain/use_cases/manage_workout_split_use_case.dart`
+- **File**: [`manage_workout_split_use_case.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/use_cases/manage_workout_split_use_case.dart)
   - **Lines**: 27–44
   - **Function / Class**: `ManageWorkoutSplitUseCase.canAssignWorkoutDay(...)`
   - **Role**: Validates whether assigning a target value to a weekday violates the split day limit.
-- **File**: `lib/ui/features/workout_split/views/workout_schedule_page.dart`
+- **File**: [`workout_schedule_page.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_split/views/workout_schedule_page.dart)
   - **Lines**: 60–83, 112–149
   - **Function / Class**: `WorkoutSchedulePage._maximumWorkoutDays` and dialog builder
   - **Role**: Enforces interactive day limits in UI and displays warning banner when limit is reached.
@@ -61,7 +61,7 @@ Resistance training programs require structured rest periods to allow neuromuscu
 ---
 
 ## Automated Test Citations
-- **Test File**: `test/widget_test.dart`
+- **Test File**: [`widget_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/widget_test.dart)
   - **Lines**: 102–121
   - **Test Case Name**: `'Full Body Split prevents a fourth workout day'`
   - **Assertion**: Populates 3 days with 'Full Body' and asserts that tapping a fourth day ('Thursday') displays `'Maximum of 3 workout days reached for Full Body Split.'` (`findsOneWidget`).

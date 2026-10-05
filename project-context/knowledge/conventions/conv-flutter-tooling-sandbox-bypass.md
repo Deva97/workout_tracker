@@ -65,4 +65,4 @@ AI agents executing Flutter command-line operations (`flutter test`, `flutter an
 - **Reference Code**:
   - `/opt/homebrew/share/flutter/bin/internal/update_engine_version.sh` (Line 71: `/opt/homebrew/share/flutter/bin/cache/engine.stamp.tmp.*`)
 - **Verifying Test**:
-  - `tool/verify_project_context_memory.sh` (Lines 612–633): Validates that `flutter analyze` and `flutter test` pass with 0 issues when executed with the appropriate environment permissions.
+  - [`verify_project_context_memory.sh:L612–633`](file:///Users/devashishraut/StudioProjects/workout_tracker/tool/verify_project_context_memory.sh#L612-L633): Validates that `flutter analyze` and `flutter test` pass with 0 issues when executed with the appropriate environment permissions.

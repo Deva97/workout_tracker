@@ -49,15 +49,15 @@ In athletic resistance training and gym culture, training programs are structure
 ---
 
 ## Source Code Citations
-- **File**: `lib/domain/models/workout_split.dart`
+- **File**: [`workout_split.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/workout_split.dart)
   - **Lines**: 15–23
   - **Function / Class**: `WorkoutSplit.weekdays`
   - **Role**: Defines the canonical Monday-through-Sunday weekday string list.
-- **File**: `lib/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart`
+- **File**: [`weekly_activity_view_model.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart)
   - **Lines**: 40–63
   - **Function / Class**: `WeeklyActivityViewModel.loadWeeklyActivity()`
   - **Role**: Computes Monday start using `now.weekday - 1`, evaluates 7 days of activity, and calculates weekly streak count.
-- **File**: `lib/data/services/google_drive_service.dart`
+- **File**: [`google_drive_service.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/google_drive_service.dart)
   - **Lines**: 567–628
   - **Function / Class**: `GoogleDriveService.getWeeklyDailyRecords([DateTime? referenceDate])`
   - **Role**: Retrieves and merges weekly records between `monday` and `nextMonday`, protecting weekly historical cache.
@@ -65,11 +65,11 @@ In athletic resistance training and gym culture, training programs are structure
 ---
 
 ## Automated Test Citations
-- **Test File**: `test/weekly_activity_test.dart`
+- **Test File**: [`weekly_activity_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/weekly_activity_test.dart)
   - **Lines**: 31–73
   - **Test Case Name**: `'marks logged days in the current Monday-to-Sunday week'`
   - **Assertion**: Verifies that `viewModel.weekActivity` has length 7, marks Mon and Wed as true, Sun as false, and calculates streak count of 2.
-- **Test File**: `test/weekly_activity_test.dart`
+- **Test File**: [`weekly_activity_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/weekly_activity_test.dart)
   - **Lines**: 75–104
   - **Test Case Name**: `'retains completed dates after the daily cache purges history'`
   - **Assertion**: Verifies that records from earlier in the week remain accessible via `getWeeklyDailyRecords` even when `getDailyRecords()` returns empty due to daily purging.

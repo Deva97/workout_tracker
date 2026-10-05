@@ -41,15 +41,15 @@ Direct maximum load testing (1RM attempts) induces extreme central nervous syste
 ---
 
 ## Source Code Citations
-- **File**: `lib/domain/use_cases/get_exercise_statistics_use_case.dart`
+- **File**: [`get_exercise_statistics_use_case.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/use_cases/get_exercise_statistics_use_case.dart)
   - **Lines**: 78–81
   - **Function / Class**: `GetExerciseStatisticsUseCase._calculateEstimated1RM(double weight, int reps)`
   - **Role**: Core mathematical implementation of the Epley 1RM estimation formula.
-- **File**: `lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart`
+- **File**: [`todays_workout_log_view_model.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart)
   - **Lines**: 154–179
   - **Function / Class**: `TodaysWorkoutLogViewModel._recalculatePersonalRecords()`
   - **Role**: Groups today's sets by exercise, applies the Epley formula with bodyweight fallback, and populates `_prRecordIds`.
-- **File**: `lib/ui/features/workout_log/views/todays_workout_log_screen.dart`
+- **File**: [`todays_workout_log_screen.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/views/todays_workout_log_screen.dart)
   - **Lines**: 316, 365–380
   - **Function / Class**: `TodaysWorkoutLogScreen` set tile builder
   - **Role**: Renders the gold `PR 🏆` badge next to the set tile when `_viewModel.isPersonalRecord(entry)` is true.
@@ -57,15 +57,15 @@ Direct maximum load testing (1RM attempts) induces extreme central nervous syste
 ---
 
 ## Automated Test Citations
-- **Test File**: `test/todays_workout_log_test.dart`
+- **Test File**: [`todays_workout_log_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart)
   - **Lines**: 270–307
   - **Test Case Name**: `'renders PR 🏆 badge for the set with highest estimated 1RM'`
   - **Assertion**: Configures set 1 (40 kg × 10 reps, est. 53.33) and set 2 (50 kg × 8 reps, est. 63.33); asserts that `find.text('PR 🏆')` finds exactly one widget corresponding to set 2.
-- **Test File**: `test/todays_workout_log_test.dart`
+- **Test File**: [`todays_workout_log_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart)
   - **Lines**: 310–344
   - **Test Case Name**: `'identifies personal record set based on peak estimated 1RM'`
   - **Assertion**: Asserts that `viewModel.isPersonalRecord(entry1)` is false and `viewModel.isPersonalRecord(entry2)` is true for Bench Press.
-- **Test File**: `test/features_and_optimizations_test.dart`
+- **Test File**: [`features_and_optimizations_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/features_and_optimizations_test.dart)
   - **Lines**: 250–299
   - **Test Case Name**: `'computes peakScore, totalSessions, totalSets and trendPercentage correctly in single pass'`
   - **Assertion**: Verifies single-pass statistical calculation of peak 1RM across sessions.

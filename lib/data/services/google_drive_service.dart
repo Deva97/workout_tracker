@@ -267,6 +267,7 @@ class GoogleDriveService {
     await ensureDriveApiReady();
     if (_driveApi == null) return;
 
+    syncStateNotifier.value = SyncState.syncing;
     try {
       final prefs = await SharedPreferences.getInstance();
       var fileId = prefs.getString(_fileIdKey);
@@ -279,6 +280,7 @@ class GoogleDriveService {
           fileId = list.files!.first.id!;
           await prefs.setString(_fileIdKey, fileId);
         } else {
+          syncStateNotifier.value = SyncState.synced;
           return;
         }
       }
@@ -295,8 +297,10 @@ class GoogleDriveService {
       final exercises = dbContext.readExercises();
 
       await _cacheExercises(exercises);
+      syncStateNotifier.value = SyncState.synced;
     } catch (e) {
       debugPrint('syncExercisesFromDrive: error syncing from Drive: $e');
+      syncStateNotifier.value = SyncState.error;
     }
   }
 
@@ -311,6 +315,7 @@ class GoogleDriveService {
     await ensureDriveApiReady();
     if (_driveApi == null) return;
 
+    syncStateNotifier.value = SyncState.syncing;
     try {
       final prefs = await SharedPreferences.getInstance();
       var fileId = prefs.getString(_fileIdKey);
@@ -339,7 +344,9 @@ class GoogleDriveService {
         fileId,
         uploadMedia: drive.Media(Stream.value(bytes), bytes.length),
       );
+      syncStateNotifier.value = SyncState.synced;
     } catch (e) {
+      syncStateNotifier.value = SyncState.error;
       rethrow;
     }
   }
@@ -427,6 +434,7 @@ class GoogleDriveService {
     await ensureDriveApiReady();
     if (_driveApi == null) return;
 
+    syncStateNotifier.value = SyncState.syncing;
     try {
       final prefs = await SharedPreferences.getInstance();
       var fileId = prefs.getString(_dailyRecordFileIdKey);
@@ -439,6 +447,7 @@ class GoogleDriveService {
           fileId = list.files!.first.id!;
           await prefs.setString(_dailyRecordFileIdKey, fileId);
         } else {
+          syncStateNotifier.value = SyncState.synced;
           return;
         }
       }
@@ -469,6 +478,7 @@ class GoogleDriveService {
     await ensureDriveApiReady();
     if (_driveApi == null) return;
 
+    syncStateNotifier.value = SyncState.syncing;
     try {
       final prefs = await SharedPreferences.getInstance();
       var fileId = prefs.getString(_dailyRecordFileIdKey);
@@ -537,7 +547,9 @@ class GoogleDriveService {
         fileId,
         uploadMedia: uploadMedia,
       );
+      syncStateNotifier.value = SyncState.synced;
     } catch (e) {
+      syncStateNotifier.value = SyncState.error;
       rethrow;
     }
   }
@@ -690,6 +702,7 @@ class GoogleDriveService {
     Duration debounce = const Duration(milliseconds: 1500),
   }) async {
     _dailyRecordSyncDebounceTimer?.cancel();
+    syncStateNotifier.value = SyncState.syncing;
     if (debounce == Duration.zero) {
       return _executeSerializedDailyRecordSync();
     }
@@ -720,6 +733,7 @@ class GoogleDriveService {
   }
 
   Future<void> _performDailyRecordSync() async {
+    syncStateNotifier.value = SyncState.syncing;
     try {
       await ensureDriveApiReady();
       if (_driveApi != null) {
@@ -736,12 +750,16 @@ class GoogleDriveService {
   void cancelPendingSync() {
     _dailyRecordSyncDebounceTimer?.cancel();
     _pendingDailyRecordSyncRequested = false;
+    if (_inFlightDailyRecordSync == null) {
+      syncStateNotifier.value = SyncState.synced;
+    }
   }
 
   /// Manual Sync action triggered by tapping the "Sync" button.
   /// Cancels pending debounce and executes immediate serialized sync with Google Drive Excel.
   Future<SyncState> manualSyncToExcel() async {
     _dailyRecordSyncDebounceTimer?.cancel();
+    syncStateNotifier.value = SyncState.syncing;
     try {
       if (simulateSyncFailure) {
         throw Exception('Simulated sync failure for testing');
@@ -867,22 +885,20 @@ class GoogleDriveService {
     final startDate = DateTime.now().subtract(Duration(days: daysLimit));
     final cutoff = DateTime(startDate.year, startDate.month, startDate.day);
 
-    List<DailyRecord> allRecords = [];
     if (_driveApi != null) {
       try {
-        allRecords = await _loadDailyRecordsFromDrive(since: cutoff);
+        final remoteRecords = await _loadDailyRecordsFromDrive(since: cutoff);
+        return remoteRecords
+            .where((r) => r.workoutId == workoutId && (r.date.isAfter(cutoff) || r.date.isAtSameMomentAs(cutoff)))
+            .toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
       } catch (e) {
         debugPrint('queryExerciseHistory: failed to load from Drive, using local context: $e');
-        allRecords = dbContext.readDailyRecords();
       }
-    } else {
-      allRecords = dbContext.readDailyRecords();
     }
 
-    return allRecords
-        .where((r) => r.workoutId == workoutId && (r.date.isAfter(cutoff) || r.date.isAtSameMomentAs(cutoff)))
-        .toList()
-      ..sort((a, b) => a.date.compareTo(b.date));
+    // High performance RDBMS Foreign Key Index + Binary Search range lookup
+    return dbContext.getRecordsForExercise(workoutId, since: cutoff);
   }
 
   /// Downloads Daily_record.xlsx and parses from its last row, stopping before [since].

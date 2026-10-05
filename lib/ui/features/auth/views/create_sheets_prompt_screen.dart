@@ -62,8 +62,8 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
   Widget build(BuildContext context) {
     if (_isCreating) {
       return const AnimatedLoadingWindow(
-        message: 'Creating Excel Database Sheets...',
-        subMessage: 'Setting up Exercise_DB.xlsx & Daily_record.xlsx on Google Drive',
+        message: 'Setting up Workout Database...',
+        subMessage: 'Configuring database on Google Drive',
       );
     }
 

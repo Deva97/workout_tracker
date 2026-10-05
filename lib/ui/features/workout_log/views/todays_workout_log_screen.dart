@@ -6,6 +6,7 @@ import 'package:workout_tracker/domain/models/daily_workout_entry.dart';
 import 'package:workout_tracker/domain/models/exercise.dart';
 import 'package:workout_tracker/domain/repositories/auth_repository.dart' show SyncState;
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/empty_state_widget.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
 import 'package:workout_tracker/ui/core/widgets/workout_delete_confirm_dialog.dart';
@@ -781,93 +782,3 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
   }
 }
 
-/// Small compact Sync button featuring rotating sync arrows and status colors
-class CompactSyncButton extends StatefulWidget {
-  final SyncState syncState;
-  final VoidCallback onPressed;
-
-  const CompactSyncButton({
-    required this.syncState,
-    required this.onPressed,
-    super.key,
-  });
-
-  @override
-  State<CompactSyncButton> createState() => _CompactSyncButtonState();
-}
-
-class _CompactSyncButtonState extends State<CompactSyncButton> with SingleTickerProviderStateMixin {
-  late final AnimationController _rotationController;
-
-  @override
-  void initState() {
-    super.initState();
-    _rotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    );
-    if (widget.syncState == SyncState.syncing) {
-      _rotationController.repeat();
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant CompactSyncButton oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.syncState == SyncState.syncing && !_rotationController.isAnimating) {
-      _rotationController.repeat();
-    } else if (widget.syncState != SyncState.syncing && _rotationController.isAnimating) {
-      _rotationController.stop();
-      _rotationController.reset();
-    }
-  }
-
-  @override
-  void dispose() {
-    _rotationController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, color, icon) = switch (widget.syncState) {
-      SyncState.synced => ('Synced', AppColors.success, Icons.cloud_done_rounded),
-      SyncState.syncing => ('Syncing...', AppColors.primary, Icons.sync_rounded),
-      SyncState.error => ('Sync', AppColors.warning, Icons.cloud_upload_rounded),
-    };
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: widget.syncState == SyncState.syncing ? null : widget.onPressed,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RotationTransition(
-                turns: _rotationController,
-                child: Icon(icon, size: 14, color: color),
-              ),
-              const SizedBox(width: 5),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

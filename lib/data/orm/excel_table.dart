@@ -87,6 +87,44 @@ class ExcelTable<T> extends IterableMixin<T> {
     _entities.clear();
   }
 
+  /// Set of soft-deleted entity keys awaiting physical vacuuming.
+  final Set<String> _tombstoneKeys = {};
+
+  /// Read-only view of active tombstone keys.
+  Set<String> get tombstoneKeys => Set.unmodifiable(_tombstoneKeys);
+
+  /// Mark an entity key as tombstoned (soft-deleted).
+  void markTombstone(String key) {
+    _tombstoneKeys.add(key);
+  }
+
+  /// Checks if a key is marked as tombstoned.
+  bool isTombstoned(String key) => _tombstoneKeys.contains(key);
+
+  /// Clears tombstone tracking flags without altering entities.
+  void clearTombstones() {
+    _tombstoneKeys.clear();
+  }
+
+  /// Compacts the table by removing all tombstoned entities and clears the tombstone set.
+  /// Returns the number of purged entities.
+  int vacuum(String Function(T entity) keySelector) {
+    if (_tombstoneKeys.isEmpty) return 0;
+    final initialCount = _entities.length;
+    _entities.removeWhere((entity) => _tombstoneKeys.contains(keySelector(entity)));
+    _tombstoneKeys.clear();
+    return initialCount - _entities.length;
+  }
+
+  /// Point lookup by entity key.
+  T? getById(String id, String Function(T entity) keySelector) {
+    if (_tombstoneKeys.contains(id)) return null;
+    for (final entity in _entities) {
+      if (keySelector(entity) == id) return entity;
+    }
+    return null;
+  }
+
   /// Return view of internal entities list.
   @override
   List<T> toList({bool growable = true}) {

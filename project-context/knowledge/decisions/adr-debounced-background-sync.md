@@ -69,7 +69,7 @@ Option 1 offers the ideal balance: the UI saves to local cache instantly, the 15
 ---
 
 ## Source Code & Test Traceability
-- **Implementation Core**: `lib/data/services/google_drive_service.dart` (Lines 666–715: `syncDailyRecordsToDriveInBackground`, `_executeSerializedDailyRecordSync`, `_performDailyRecordSync`)
-- **State Notifier**: `lib/data/services/google_drive_service.dart` (`syncStateNotifier.value = SyncState.syncing / synced / error`)
+- **Implementation Core**: [`google_drive_service.dart:L666–715: `syncDailyRecordsToDriveInBackground`-`_executeSerializedDailyRecordSync`-`_performDailyRecordSync``](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/google_drive_service.dart#L666-L715)
+- **State Notifier**: [`google_drive_service.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/google_drive_service.dart)
 - **Automated Regression Test**:
-  - `test/features_and_optimizations_test.dart` (Lines 233–247, test name: `'syncDailyRecordsToDriveInBackground debounces rapid invocations into single execution'`)
+  - [`features_and_optimizations_test.dart:L233–247-test name: `'syncDailyRecordsToDriveInBackground debounces rapid invocations into single execution'``](file:///Users/devashishraut/StudioProjects/workout_tracker/test/features_and_optimizations_test.dart#L233-L247)

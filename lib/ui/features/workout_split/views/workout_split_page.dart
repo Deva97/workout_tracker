@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workout_tracker/ui/core/theme/app_colors.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/modular_card.dart';
 import 'package:workout_tracker/ui/core/widgets/status_badge.dart';
 import 'workout_schedule_page.dart';
@@ -110,6 +111,14 @@ class _WorkoutSplitPageState extends State<WorkoutSplitPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Choose Workout Split', style: TextStyle(fontWeight: FontWeight.bold)),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 14),
+            child: Center(
+              child: CompactSyncButton(),
+            ),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

@@ -70,8 +70,8 @@ Option 1 fundamentally aligns with the core product philosophy of user privacy a
 ---
 
 ## Source Code & Test Traceability
-- **Implementation Core**: `lib/data/orm/excel_context.dart`, `lib/data/orm/entity_mapper.dart`, `lib/data/orm/excel_query.dart`
-- **Context / ORM Wiring**: `lib/data/context/workout_db_context.dart` (Lines 8–188) and `lib/data/services/google_drive_service.dart`
+- **Implementation Core**: [`excel_context.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/orm/excel_context.dart), [`entity_mapper.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/orm/entity_mapper.dart), [`excel_query.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/orm/excel_query.dart)
+- **Context / ORM Wiring**: [`workout_db_context.dart:L8–188`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/context/workout_db_context.dart#L8-L188) and [`google_drive_service.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/google_drive_service.dart)
 - **Automated Regression Test**:
-  - `test/excel_orm_test.dart` (Lines 152–183, test name: `'Daily_record.xlsx roundtrip encoding and decoding preserves typed fields'`)
-  - `test/excel_orm_test.dart` (Lines 185–226, test name: `'recent daily rows load backwards and stop before the date boundary'`)
+  - [`excel_orm_test.dart:L152–183-test name: `'Daily_record.xlsx roundtrip encoding and decoding preserves typed fields'``](file:///Users/devashishraut/StudioProjects/workout_tracker/test/excel_orm_test.dart#L152-L183)
+  - [`excel_orm_test.dart:L185–226-test name: `'recent daily rows load backwards and stop before the date boundary'``](file:///Users/devashishraut/StudioProjects/workout_tracker/test/excel_orm_test.dart#L185-L226)

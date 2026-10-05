@@ -134,24 +134,24 @@ User Action (Log Set)
 
 | Component | File Path | Responsibilities |
 |---|---|---|
-| **App Bootstrap** | `lib/main.dart` | Initializes services, binds global themes, and sets root route. |
-| **Domain Repository** | `lib/domain/repositories/workout_repository.dart` | Defines the domain data contracts. |
-| **Split Model** | `lib/domain/models/workout_split.dart` | Encapsulates split rules and weekday calculations. |
-| **1RM Statistics Use Case** | `lib/domain/use_cases/get_exercise_statistics_use_case.dart` | Calculates Epley 1RM, volume trends, and PR status. |
-| **Database Context** | `lib/data/context/workout_db_context.dart` | Provides strongly-typed Excel tables for exercises and records. |
-| **Excel ORM Core** | `lib/data/orm/excel_context.dart` | Manages raw spreadsheet byte streams and table definitions. |
-| **Drive Service** | `lib/data/services/google_drive_service.dart` | Handles Drive OAuth2, REST API calls, and debounced sync queue. |
-| **Local Storage Service** | `lib/data/services/local_storage_service.dart` | Manages `SharedPreferences` keys for cache and preferences. |
-| **Daily Log ViewModel** | `lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart` | Manages active workout session state, set adding, and PR badges. |
-| **Weekly Activity ViewModel** | `lib/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart` | Computes Monday–Sunday calendar compliance and streaks. |
+| **App Bootstrap** | [`main.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/main.dart) | Initializes services, binds global themes, and sets root route. |
+| **Domain Repository** | [`workout_repository.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/repositories/workout_repository.dart) | Defines the domain data contracts. |
+| **Split Model** | [`workout_split.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/models/workout_split.dart) | Encapsulates split rules and weekday calculations. |
+| **1RM Statistics Use Case** | [`get_exercise_statistics_use_case.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/domain/use_cases/get_exercise_statistics_use_case.dart) | Calculates Epley 1RM, volume trends, and PR status. |
+| **Database Context** | [`workout_db_context.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/context/workout_db_context.dart) | Provides strongly-typed Excel tables for exercises and records. |
+| **Excel ORM Core** | [`excel_context.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/orm/excel_context.dart) | Manages raw spreadsheet byte streams and table definitions. |
+| **Drive Service** | [`google_drive_service.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/google_drive_service.dart) | Handles Drive OAuth2, REST API calls, and debounced sync queue. |
+| **Local Storage Service** | [`local_storage_service.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/data/services/local_storage_service.dart) | Manages `SharedPreferences` keys for cache and preferences. |
+| **Daily Log ViewModel** | [`todays_workout_log_view_model.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/workout_log/view_models/todays_workout_log_view_model.dart) | Manages active workout session state, set adding, and PR badges. |
+| **Weekly Activity ViewModel** | [`weekly_activity_view_model.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/lib/ui/features/weekly_activity/view_models/weekly_activity_view_model.dart) | Computes Monday–Sunday calendar compliance and streaks. |
 
 ---
 
 ## 6. Verification & Automated Test Coverage
 
 The architectural boundaries defined above are covered by 55 automated regression tests in `test/`:
-- **ORM & Serialization**: `test/excel_orm_test.dart` validates bidirectional Excel encoding/decoding and reverse queries.
-- **Drive Debouncing & Isolation**: `test/features_and_optimizations_test.dart` verifies debouncing coalescing and historical cache isolation.
-- **ViewModel Decoupling**: `test/todays_workout_log_test.dart` demonstrates hermetic ViewModel testing using mock repositories without network calls.
-- **Calendar Boundaries**: `test/weekly_activity_test.dart` verifies strict Monday-to-Sunday calculation boundaries.
-- **Domain Split Constraints**: `test/widget_test.dart` confirms user-facing UI enforcement of split day limits.
+- **ORM & Serialization**: [`excel_orm_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/excel_orm_test.dart) validates bidirectional Excel encoding/decoding and reverse queries.
+- **Drive Debouncing & Isolation**: [`features_and_optimizations_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/features_and_optimizations_test.dart) verifies debouncing coalescing and historical cache isolation.
+- **ViewModel Decoupling**: [`todays_workout_log_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/todays_workout_log_test.dart) demonstrates hermetic ViewModel testing using mock repositories without network calls.
+- **Calendar Boundaries**: [`weekly_activity_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/weekly_activity_test.dart) verifies strict Monday-to-Sunday calculation boundaries.
+- **Domain Split Constraints**: [`widget_test.dart`](file:///Users/devashishraut/StudioProjects/workout_tracker/test/widget_test.dart) confirms user-facing UI enforcement of split day limits.
