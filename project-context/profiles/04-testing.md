@@ -9,7 +9,7 @@ The project includes robust unit, widget, ORM, and integration testing across th
 
 ## 2. Current Implementation
 ### 2.1 Test Coverage
-The project maintains an active, fully passing test suite of **101 tests** located in `test/`:
+The project maintains an active, fully passing test suite of **115 tests** located in `test/`:
 
 - `test/todays_workout_log_test.dart` (55+ tests):
   - **ORM & Relational Query Tests**: Foreign key resolution (`daily_record.workout_ID` -> `Exercise.guid`), empty result sets, cache eviction.
@@ -42,6 +42,12 @@ The project maintains an active, fully passing test suite of **101 tests** locat
 
 - `test/theme_test.dart` (~5 tests):
   - **Theming & Color Palettes**: Light and dark mode `ThemeData` validation, contrast ratios, and muscle target color mappings.
+
+- `test/compact_sync_button_and_animation_test.dart` (14 tests):
+  - **Sync Animation Lifecycle**: Active rotation transitions in `SyncState.syncing`, stopped states in `SyncState.synced` and `SyncState.error`.
+  - **Dynamic State Reactivity**: Real-time animation trigger on `GoogleDriveService.syncStateNotifier` change.
+  - **Top-Right AppBar Placement**: Top-right AppBar presence verified across `TodaysWorkoutLogScreen`, `ExerciseInfoPage`, `HomeScreen`, `ExerciseStatisticsScreen`, `WorkoutSplitPage`, and `WorkoutSchedulePage`.
+  - **Immediate Transition**: `syncDailyRecordsToDriveInBackground` and `manualSyncToExcel` immediately emit `SyncState.syncing`.
 
 - `test/widget_test.dart` (~2 tests):
   - **App Sanity & Split Invariants**: Root app mounting, Full Body Split maximum workout day validation.

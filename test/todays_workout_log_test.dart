@@ -13,6 +13,7 @@ import 'package:workout_tracker/ui/features/workout_log/views/widgets/add_workou
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/boundary_shake_wrapper.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/date_navigator_bar.dart';
 import 'package:workout_tracker/ui/features/workout_log/views/widgets/half_screen_page_scroll_physics.dart';
+import 'package:workout_tracker/ui/core/widgets/compact_sync_button.dart';
 import 'package:workout_tracker/ui/core/widgets/workout_delete_confirm_dialog.dart';
 import 'package:workout_tracker/ui/core/widgets/sync_failure_dialog.dart';
 import 'package:workout_tracker/ui/core/widgets/workout_activity_success_dialog.dart';
