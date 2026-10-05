@@ -78,3 +78,6 @@ tool/
 .factory/
 .continue/
 
+# Test data and fixtures
+test/fixtures/
+test_data/

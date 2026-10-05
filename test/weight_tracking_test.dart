@@ -280,18 +280,24 @@ void main() {
 
   group('Data Layer: ScaleOcrService Text Parsing', () {
     test('extracts valid weight digits across varied LCD formats', () {
+      expect(ScaleOcrService.parseWeightFromText('6.6 kg'), equals(6.6));
+      expect(ScaleOcrService.parseWeightFromText('CAMRY\n6.6 kg'), equals(6.6));
+      expect(ScaleOcrService.parseWeightFromText('CAMRY 6.6 kg'), equals(6.6));
       expect(ScaleOcrService.parseWeightFromText('74.5 kg'), equals(74.5));
       expect(ScaleOcrService.parseWeightFromText('Weight: 82.3kg'), equals(82.3));
       expect(ScaleOcrService.parseWeightFromText('\n  120.0 \n'), equals(120.0));
       expect(ScaleOcrService.parseWeightFromText('68,4 kg'), equals(68.4));
       expect(ScaleOcrService.parseWeightFromText('75 kg'), equals(75.0));
+      expect(ScaleOcrService.parseWeightFromText('15.0 kg'), equals(15.0));
       expect(ScaleOcrService.parseWeightFromText('MAX 150KG \n 75.8 KG \n READY'), equals(75.8));
       expect(ScaleOcrService.parseWeightFromText('68.25'), equals(68.3));
     });
 
-    test('handles 7-segment display letter O substitutions', () {
+    test('handles 7-segment display letter O and b substitutions', () {
       expect(ScaleOcrService.parseWeightFromText('7O.5 kg'), equals(70.5));
       expect(ScaleOcrService.parseWeightFromText('80.O kg'), equals(80.0));
+      expect(ScaleOcrService.parseWeightFromText('b.b kg'), equals(6.6));
+      expect(ScaleOcrService.parseWeightFromText('6.b kg'), equals(6.6));
     });
 
     test('rejects noise and non-weight text', () {
@@ -299,8 +305,9 @@ void main() {
       expect(ScaleOcrService.parseWeightFromText('   '), isNull);
       expect(ScaleOcrService.parseWeightFromText('ERR 04'), isNull);
       expect(ScaleOcrService.parseWeightFromText('12:45 PM'), isNull);
-      expect(ScaleOcrService.parseWeightFromText('15.0 kg'), isNull); // under 30kg human threshold
-      expect(ScaleOcrService.parseWeightFromText('450 kg'), isNull); // above 300kg human threshold
+      expect(ScaleOcrService.parseWeightFromText('0.2 kg'), isNull); // under 0.5kg scale threshold
+      expect(ScaleOcrService.parseWeightFromText('0.0 kg'), isNull);
+      expect(ScaleOcrService.parseWeightFromText('450 kg'), isNull); // above 300kg scale threshold
     });
   });
 

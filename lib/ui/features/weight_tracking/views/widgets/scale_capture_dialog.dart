@@ -32,7 +32,7 @@ class _ScaleCaptureDialogState extends State<ScaleCaptureDialog> {
 
   void _adjustWeight(double delta) {
     setState(() {
-      _currentWeight = double.parse((_currentWeight + delta).clamp(30.0, 300.0).toStringAsFixed(1));
+      _currentWeight = double.parse((_currentWeight + delta).clamp(0.5, 300.0).toStringAsFixed(1));
       _controller.text = _currentWeight.toStringAsFixed(1);
     });
   }

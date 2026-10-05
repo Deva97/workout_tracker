@@ -64,6 +64,15 @@ class ScaleOcrService {
       return ScaleOcrResult.cancelled();
     }
 
+    return extractWeightFromPhoto(photo, deleteAfter: true);
+  }
+
+  /// Processes a photo file with OCR, parses weight digits,
+  /// and optionally deletes the photo immediately after extraction.
+  Future<ScaleOcrResult> extractWeightFromPhoto(
+    XFile photo, {
+    bool deleteAfter = true,
+  }) async {
     String recognizedText = '';
     TextRecognizer? recognizer;
     try {
@@ -78,8 +87,10 @@ class ScaleOcrService {
       debugPrint('OCR extraction error: $e');
     } finally {
       await recognizer?.close();
-      // INVARIANT: Delete picture immediately as soon as OCR processing finishes
-      await _deletePhotoQuietly(photo.path);
+      if (deleteAfter) {
+        // INVARIANT: Delete picture immediately as soon as OCR processing finishes
+        await _deletePhotoQuietly(photo.path);
+      }
     }
 
     final parsedWeight = parseWeightFromText(recognizedText);
@@ -98,22 +109,33 @@ class ScaleOcrService {
     if (rawText.trim().isEmpty) return null;
 
     // Normalization: replace commas with decimal points and handle common 7-segment digit confusions
-    final normalized = rawText
+    String normalized = rawText
         .replaceAll(',', '.')
         .replaceAll(RegExp(r'(?<=[\d.])[oO]'), '0')
         .replaceAll(RegExp(r'[oO](?=[\d.])'), '0');
 
-    // Matches standard decimal weight (e.g. 74.5, 74.50, 102.3, 68)
-    final regex = RegExp(r'(?:^|[^\d.])(\d{2,3}(?:\.\d{1,2})?)(?:[^\d.]|$)');
-    final matches = regex.allMatches(normalized);
+    // Handle 7-segment display letter 'b' confused with '6' when adjacent to a decimal point
+    normalized = normalized
+        .replaceAll(RegExp(r'\b[bB]\.(?=\d|[bB])'), '6.')
+        .replaceAll(RegExp(r'(?<=\d|\.)[bB]\b'), '6');
+
+    // Remove clock timestamps (e.g. 12:45 PM, 08:30) to prevent false numeric extractions
+    final cleaned = normalized.replaceAll(
+      RegExp(r'\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp][Mm])?\b'),
+      ' ',
+    );
+
+    // Matches numbers with 1 to 3 digits before decimal, avoiding codes with leading zero like "04"
+    final regex = RegExp(r'(?:^|[^\d.])([1-9]\d{0,2}(?:\.\d{1,2})?|0\.\d{1,2})(?:[^\d.]|$)');
+    final matches = regex.allMatches(cleaned);
 
     final List<double> candidates = [];
     for (final match in matches) {
       final str = match.group(1);
       if (str != null) {
         final val = double.tryParse(str);
-        // Valid human weight bounds in kg (30 kg to 300 kg)
-        if (val != null && val >= 30.0 && val <= 300.0) {
+        // Valid personal scale weight bounds in kg (0.5 kg to 300.0 kg)
+        if (val != null && val >= 0.5 && val <= 300.0) {
           candidates.add(val);
         }
       }
@@ -121,7 +143,7 @@ class ScaleOcrService {
 
     if (candidates.isEmpty) return null;
 
-    // Prefer candidates that have an explicit decimal point (e.g. 74.5 over 74)
+    // Prefer candidates that have an explicit decimal point (e.g. 6.6 or 74.5 over 74)
     final decimalCandidates = candidates.where((c) => c % 1 != 0).toList();
     if (decimalCandidates.isNotEmpty) {
       return double.parse(decimalCandidates.first.toStringAsFixed(1));
