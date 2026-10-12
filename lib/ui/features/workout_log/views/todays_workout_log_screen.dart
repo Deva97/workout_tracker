@@ -139,7 +139,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     showSyncFailureDialog(
       context: context,
       title: 'Sync Failed',
-      message: 'Failed to sync deletion with the database. Would you like to retry or cancel?',
+      message: 'Failed to sync deletion with cloud storage. Would you like to retry or cancel?',
       onRetry: () async {
         final retryResult = await _viewModel.retrySync();
         if (!mounted) return;
@@ -189,7 +189,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     showSyncFailureDialog(
       context: context,
       title: 'Sync Failed',
-      message: 'Failed to sync new workout set with the database. Would you like to retry or cancel?',
+      message: 'Failed to sync new workout set with cloud storage. Would you like to retry or cancel?',
       onRetry: () async {
         final retryResult = await _viewModel.retrySync();
         if (!mounted) return;
@@ -239,7 +239,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     showSyncFailureDialog(
       context: context,
       title: 'Sync Failed',
-      message: 'Failed to sync updated set with the database. Would you like to retry or cancel?',
+      message: 'Failed to sync updated set with cloud storage. Would you like to retry or cancel?',
       onRetry: () async {
         final retryResult = await _viewModel.retrySync();
         if (!mounted) return;
@@ -270,7 +270,7 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
     if (result == SyncState.synced) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Synced with Google Drive Excel!'),
+          content: const Text('Synced with Google Drive!'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -680,6 +680,28 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
                             ),
                           ),
 
+                          // Unilateral Execution Badge
+                          if (entry.record.executionType == 'unilateral-left' ||
+                              entry.record.executionType == 'unilateral-right') ...[
+                            const SizedBox(width: 5),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withValues(alpha: isDark ? 0.2 : 0.12),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                entry.record.executionType == 'unilateral-left' ? 'LEFT' : 'RIGHT',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 9,
+                                  color: AppColors.accentLight,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                            ),
+                          ],
+
                           // PR Badge
                           if (isPr) ...[
                             const SizedBox(width: 5),
@@ -706,42 +728,74 @@ class _TodaysWorkoutLogScreenState extends State<TodaysWorkoutLogScreen> {
 
                           const SizedBox(width: 8),
 
-                          // Middle Metrics: Weight × Reps • RIR
+                          // Middle Metrics: Weight × Reps • RIR & Note preview
                           Expanded(
-                            child: Text.rich(
-                              TextSpan(
-                                children: [
-                                  if (entry.record.weight > 0) ...[
-                                    TextSpan(
-                                      text: '${entry.record.weight} kg',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                        color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      if (entry.record.weight > 0) ...[
+                                        TextSpan(
+                                          text: '${entry.record.weight} kg',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                            color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        const TextSpan(text: ' × '),
+                                      ],
+                                      TextSpan(
+                                        text: '${entry.record.reps} reps',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13,
+                                          color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                        ),
                                       ),
-                                    ),
-                                    const TextSpan(text: ' × '),
-                                  ],
-                                  TextSpan(
-                                    text: '${entry.record.reps} reps',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 13,
-                                      color: isDark ? AppColors.textLight : AppColors.textPrimary,
+                                      TextSpan(
+                                        text: '  •  RIR ${entry.record.rir}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w500,
+                                          fontSize: 12,
+                                          color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                if (entry.record.notes.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.edit_note_rounded,
+                                          size: 13,
+                                          color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                                        ),
+                                        const SizedBox(width: 3),
+                                        Expanded(
+                                          child: Text(
+                                            entry.record.notes,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontStyle: FontStyle.italic,
+                                              color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  TextSpan(
-                                    text: '  •  RIR ${entry.record.rir}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                      fontSize: 12,
-                                      color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                              ],
                             ),
                           ),
 

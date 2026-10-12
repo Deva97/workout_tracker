@@ -101,7 +101,7 @@ class _CompactSyncButtonState extends State<CompactSyncButton> with SingleTicker
     if (result == SyncState.synced) {
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('Synced with Google Drive Excel!'),
+          content: const Text('Synced with Google Drive!'),
           backgroundColor: AppColors.success,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),

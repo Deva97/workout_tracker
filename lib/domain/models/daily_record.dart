@@ -10,6 +10,8 @@ class DailyRecord {
   final int reps;
   final double rir;
   final double weight;
+  final String executionType;
+  final String notes;
 
   DailyRecord({
     required this.id,
@@ -20,6 +22,8 @@ class DailyRecord {
     required this.reps,
     required this.rir,
     this.weight = 0.0,
+    this.executionType = 'bilateral',
+    this.notes = '',
   });
 
   DailyRecord copyWith({
@@ -31,6 +35,8 @@ class DailyRecord {
     int? reps,
     double? rir,
     double? weight,
+    String? executionType,
+    String? notes,
   }) {
     return DailyRecord(
       id: id ?? this.id,
@@ -41,6 +47,8 @@ class DailyRecord {
       reps: reps ?? this.reps,
       rir: rir ?? this.rir,
       weight: weight ?? this.weight,
+      executionType: executionType ?? this.executionType,
+      notes: notes ?? this.notes,
     );
   }
 
@@ -54,6 +62,8 @@ class DailyRecord {
       'reps': reps,
       'RIR': rir,
       'weight': weight,
+      'execution_type': executionType,
+      'notes': notes,
     };
   }
 
@@ -77,6 +87,8 @@ class DailyRecord {
       reps: int.tryParse(map['reps']?.toString() ?? '') ?? 0,
       rir: double.tryParse(map['RIR']?.toString() ?? map['rir']?.toString() ?? '') ?? 0.0,
       weight: double.tryParse(map['weight']?.toString() ?? map['Weight']?.toString() ?? '') ?? 0.0,
+      executionType: (map['execution_type'] ?? map['executionType'] ?? 'bilateral').toString(),
+      notes: (map['notes'] ?? map['Notes'] ?? '').toString(),
     );
   }
 
@@ -91,6 +103,8 @@ class DailyRecord {
       reps: 0,
       rir: 0.0,
       weight: 0.0,
+      executionType: 'bilateral',
+      notes: '',
     ),
     columns: [
       ExcelColumn<DailyRecord, String>(
@@ -141,12 +155,24 @@ class DailyRecord {
         setValue: (r, v) => r.copyWith(weight: v),
         defaultValue: 0.0,
       ),
+      ExcelColumn<DailyRecord, String>(
+        headerName: 'execution_type',
+        getValue: (r) => r.executionType,
+        setValue: (r, v) => r.copyWith(executionType: v),
+        defaultValue: 'bilateral',
+      ),
+      ExcelColumn<DailyRecord, String>(
+        headerName: 'notes',
+        getValue: (r) => r.notes,
+        setValue: (r, v) => r.copyWith(notes: v),
+        defaultValue: '',
+      ),
     ],
   );
 
   @override
   String toString() =>
-      'DailyRecord(id: $id, workoutId: $workoutId, workoutName: $workoutName, date: $date, set: $set, reps: $reps, rir: $rir, weight: $weight)';
+      'DailyRecord(id: $id, workoutId: $workoutId, workoutName: $workoutName, date: $date, set: $set, reps: $reps, rir: $rir, weight: $weight, executionType: $executionType, notes: $notes)';
 
   @override
   bool operator ==(Object other) =>
@@ -160,7 +186,9 @@ class DailyRecord {
           set == other.set &&
           reps == other.reps &&
           rir == other.rir &&
-          weight == other.weight;
+          weight == other.weight &&
+          executionType == other.executionType &&
+          notes == other.notes;
 
   @override
   int get hashCode =>
@@ -171,5 +199,7 @@ class DailyRecord {
       set.hashCode ^
       reps.hashCode ^
       rir.hashCode ^
-      weight.hashCode;
+      weight.hashCode ^
+      executionType.hashCode ^
+      notes.hashCode;
 }

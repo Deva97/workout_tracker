@@ -173,7 +173,7 @@ void main() {
       expect(find.text('Set 1'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
-          (w) => w is RichText && w.text.toPlainText().contains('10'),
+          (w) => w is RichText && w.text.toPlainText().contains('Reps: 10'),
         ),
         findsOneWidget,
       );

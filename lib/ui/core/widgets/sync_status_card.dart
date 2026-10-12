@@ -79,7 +79,7 @@ class SyncStatusCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Connect your Google Drive account to keep Exercise_DB.xlsx and workout logs synced seamlessly.',
+              'Connect your Google Drive account to keep your exercise library and workout logs synced seamlessly.',
               style: TextStyle(
                 color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
                 fontSize: 13,

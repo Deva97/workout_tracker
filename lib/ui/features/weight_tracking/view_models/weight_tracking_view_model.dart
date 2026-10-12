@@ -61,7 +61,7 @@ class WeightTrackingViewModel extends ChangeNotifier {
         await _loadRecordsInternal();
       }
     } catch (e) {
-      _errorMessage = 'Could not verify weight sheet in Drive: $e';
+      _errorMessage = 'Could not verify weight records in Drive: $e';
     } finally {
       _isCheckingDrive = false;
       notifyListeners();
@@ -78,7 +78,7 @@ class WeightTrackingViewModel extends ChangeNotifier {
       _sheetExists = true;
       await _loadRecordsInternal();
     } catch (e) {
-      _errorMessage = 'Failed to create Body_weight.xlsx: $e';
+      _errorMessage = 'Failed to initialize weight tracker: $e';
     } finally {
       _isCreatingSheet = false;
       notifyListeners();

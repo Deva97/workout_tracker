@@ -43,10 +43,10 @@ class _SplashScreenState extends State<SplashScreen> {
       return;
     }
 
-    // Step 2: Check Google Drive Excel Database Sheets
+    // Step 2: Check Google Drive Cloud Storage
     setState(() {
       _message = 'Validating Google Drive...';
-      _subMessage = 'Checking workout database';
+      _subMessage = 'Checking cloud storage';
     });
 
     try {
@@ -58,7 +58,7 @@ class _SplashScreenState extends State<SplashScreen> {
         // Both sheets exist -> Sync and land on HomeScreen
         setState(() {
           _message = 'Loading Dashboard...';
-          _subMessage = 'Syncing exercise database';
+          _subMessage = 'Syncing exercise library';
         });
         await _driveService.syncFromDrive();
 

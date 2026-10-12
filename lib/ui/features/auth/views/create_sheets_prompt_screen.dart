@@ -41,7 +41,7 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
         setState(() => _isCreating = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to create Excel sheets: $e'),
+            content: Text('Failed to set up cloud storage: $e'),
             backgroundColor: AppColors.error,
           ),
         );
@@ -62,8 +62,8 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
   Widget build(BuildContext context) {
     if (_isCreating) {
       return const AnimatedLoadingWindow(
-        message: 'Setting up Workout Database...',
-        subMessage: 'Configuring database on Google Drive',
+        message: 'Setting up Cloud Storage...',
+        subMessage: 'Configuring files on Google Drive',
       );
     }
 
@@ -104,7 +104,7 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
               const SizedBox(height: 20),
 
               Text(
-                'Excel Database Setup Required',
+                'Cloud Storage Setup Required',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface,
                   fontSize: 24,
@@ -115,7 +115,7 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
               const SizedBox(height: 8),
 
               Text(
-                'The required Excel sheets were not found in your "Workout Tracker" folder on Google Drive. Would you like to create them now?',
+                'The required workout data files were not found in your "Workout Tracker" folder on Google Drive. Would you like to create them now?',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
                   fontSize: 14,
@@ -129,14 +129,14 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
                 child: ListView(
                   children: [
                     _buildSheetStatusCard(
-                      title: 'Exercise_DB.xlsx',
-                      subtitle: 'Columns: Id (GUID), exercise_name, body_part_target',
+                      title: 'Exercise Library',
+                      subtitle: 'Exercise definitions and target muscle groups',
                       missing: missingExerciseDb,
                     ),
                     const SizedBox(height: 12),
                     _buildSheetStatusCard(
-                      title: 'Daily_record.xlsx',
-                      subtitle: 'Columns: ID, workout_ID, workout_name, Date, set, reps, RIR',
+                      title: 'Workout Logs',
+                      subtitle: 'Daily workout sets, reps, weight, and history',
                       missing: missingDailyRecord,
                     ),
                   ],
@@ -151,7 +151,7 @@ class _CreateSheetsPromptScreenState extends State<CreateSheetsPromptScreen> {
                   onPressed: _handleCreateSheets,
                   icon: const Icon(Icons.add_to_drive_rounded),
                   label: const Text(
-                    'Create Excel Sheets Now',
+                    'Set Up Cloud Storage Now',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(

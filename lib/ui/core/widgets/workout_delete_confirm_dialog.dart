@@ -120,7 +120,7 @@ class WorkoutDeleteConfirmDialog extends StatelessWidget {
             const SizedBox(height: 12),
 
             Text(
-              'Are you sure you want to delete this workout set? This will sync with your database.',
+              'Are you sure you want to delete this workout set? This will sync with cloud storage.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,

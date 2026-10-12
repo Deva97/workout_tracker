@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// A centered modal dialog displayed when syncing with Google Drive Excel fails.
+/// A centered modal dialog displayed when syncing with Google Drive fails.
 /// Offers "Cancel" (which rolls back the local changes) and "Retry" (which re-attempts sync).
 class SyncFailureDialog extends StatelessWidget {
   final String title;
@@ -13,7 +13,7 @@ class SyncFailureDialog extends StatelessWidget {
     required this.onCancel,
     required this.onRetry,
     this.title = 'Sync Failed',
-    this.message = 'Failed to sync changes with the database. Please check your network connection and try again.',
+    this.message = 'Failed to sync changes with cloud storage. Please check your network connection and try again.',
     super.key,
   });
 
@@ -146,7 +146,7 @@ Future<void> showSyncFailureDialog({
   required VoidCallback onCancel,
   required VoidCallback onRetry,
   String title = 'Sync Failed',
-  String message = 'Failed to sync changes with the database. Please check your network connection and try again.',
+  String message = 'Failed to sync changes with cloud storage. Please check your network connection and try again.',
 }) {
   return showDialog<void>(
     context: context,

@@ -70,7 +70,7 @@ class _WeightTrackingScreenState extends State<WeightTrackingScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Checking Drive for Body_weight.xlsx...',
+                    'Checking Drive for weight records...',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -82,7 +82,7 @@ class _WeightTrackingScreenState extends State<WeightTrackingScreen> {
             );
           }
 
-          // State 2: Missing Body_weight.xlsx prompt
+          // State 2: Missing weight records prompt
           if (!_viewModel.sheetExists) {
             return _buildMissingSheetPrompt();
           }
@@ -162,7 +162,7 @@ class _WeightTrackingScreenState extends State<WeightTrackingScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Body_weight.xlsx was not found in your Google Drive folder. Add this sheet to track your daily weight and view weekly averages.',
+                'Weight records were not found in your Google Drive folder. Enable weight tracking to log your daily weight and view weekly averages.',
                 style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
                 textAlign: TextAlign.center,
               ),
@@ -175,7 +175,7 @@ class _WeightTrackingScreenState extends State<WeightTrackingScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.add_rounded, size: 20),
-                label: Text(_viewModel.isCreatingSheet ? 'Creating Sheet...' : 'Add Body_weight.xlsx'),
+                label: Text(_viewModel.isCreatingSheet ? 'Setting Up...' : 'Enable Weight Tracking'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,

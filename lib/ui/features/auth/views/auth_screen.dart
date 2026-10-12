@@ -86,7 +86,7 @@ class _AuthScreenState extends State<AuthScreen> {
               const SizedBox(height: 12),
 
               Text(
-                'Sign in with Google to enable cloud database sync for your exercises & daily workout logs.',
+                'Sign in with Google to enable cloud sync for your exercises & daily workout logs.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.7),
@@ -108,7 +108,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     _buildFeatureRow(
                       Icons.storage_rounded,
                       'Google Drive Integration',
-                      'Sync Exercise_DB.xlsx & Daily_record.xlsx automatically',
+                      'Sync your workout logs & exercise library automatically',
                     ),
                     const SizedBox(height: 16),
                     _buildFeatureRow(

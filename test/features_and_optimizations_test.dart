@@ -340,19 +340,19 @@ void main() {
         const MaterialApp(
           home: AnimatedLoadingWindow(
             message: 'Validating Google Drive...',
-            subMessage: 'Checking workout database',
+            subMessage: 'Checking cloud storage',
           ),
         ),
       );
 
       expect(find.text('Validating Google Drive...'), findsOneWidget);
-      expect(find.text('Checking workout database'), findsOneWidget);
+      expect(find.text('Checking cloud storage'), findsOneWidget);
       expect(find.textContaining('.xlsx'), findsNothing);
       expect(find.textContaining('Exercise_DB'), findsNothing);
       expect(find.textContaining('Daily_record'), findsNothing);
     });
 
-    testWidgets('CreateSheetsPromptScreen displays clean setup copy', (tester) async {
+    testWidgets('CreateSheetsPromptScreen displays clean setup copy without database or excel names', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: CreateSheetsPromptScreen(
@@ -364,7 +364,14 @@ void main() {
         ),
       );
 
-      expect(find.text('Excel Database Setup Required'), findsOneWidget);
+      expect(find.text('Cloud Storage Setup Required'), findsOneWidget);
+      expect(find.text('Exercise Library'), findsOneWidget);
+      expect(find.text('Workout Logs'), findsOneWidget);
+      expect(find.text('Set Up Cloud Storage Now'), findsOneWidget);
+      expect(find.textContaining('Excel'), findsNothing);
+      expect(find.textContaining('database'), findsNothing);
+      expect(find.textContaining('Exercise_DB'), findsNothing);
+      expect(find.textContaining('Daily_record'), findsNothing);
     });
   });
 

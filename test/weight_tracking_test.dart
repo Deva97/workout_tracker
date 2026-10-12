@@ -668,11 +668,11 @@ void main() {
       );
 
       // Before pumpAndSettle, isCheckingDrive is true
-      expect(find.text('Checking Drive for Body_weight.xlsx...'), findsOneWidget);
+      expect(find.text('Checking Drive for weight records...'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       await tester.pumpAndSettle();
-      expect(find.text('Checking Drive for Body_weight.xlsx...'), findsNothing);
+      expect(find.text('Checking Drive for weight records...'), findsNothing);
     });
 
     testWidgets('shows missing sheet prompt and initializes sheet on button tap', (tester) async {
@@ -690,10 +690,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Initialize Weight Tracker'), findsOneWidget);
-      expect(find.text('Add Body_weight.xlsx'), findsOneWidget);
+      expect(find.text('Enable Weight Tracking'), findsOneWidget);
 
       // Tap initialize sheet
-      await tester.tap(find.text('Add Body_weight.xlsx'));
+      await tester.tap(find.text('Enable Weight Tracking'));
       await tester.pumpAndSettle();
 
       expect(repository.createSheetCalled, isTrue);

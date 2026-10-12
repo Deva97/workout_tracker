@@ -108,7 +108,7 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                               isExpanded: true,
                               dropdownColor: Theme.of(context).cardColor,
                               icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
-                              hint: const Text('Select Exercise from Exercise_DB'),
+                              hint: const Text('Select Exercise'),
                               items: _viewModel.availableExercises.map((e) {
                                 return DropdownMenuItem<Exercise>(
                                   value: e,
@@ -410,21 +410,51 @@ class _ExerciseStatisticsScreenState extends State<ExerciseStatisticsScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        // Set number pill
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            'Set ${record.set}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                              color: AppColors.primary,
+                        // Set number pill + Unilateral badge
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Set ${record.set}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  color: AppColors.primary,
+                                ),
+                              ),
                             ),
-                          ),
+                            if (record.executionType == 'unilateral-left' ||
+                                record.executionType == 'unilateral-right') ...[
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppColors.accent.withValues(alpha: isDark ? 0.2 : 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  record.executionType == 'unilateral-left' ? 'LEFT' : 'RIGHT',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 10,
+                                    color: AppColors.accentLight,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            if (record.notes.isNotEmpty) ...[
+                              const SizedBox(width: 4),
+                              Tooltip(
+                                message: record.notes,
+                                child: const Icon(Icons.edit_note_rounded, size: 16, color: AppColors.textSecondary),
+                              ),
+                            ],
+                          ],
                         ),
 
                         // Weight, Reps, RIR Details
